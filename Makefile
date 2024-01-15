@@ -5,7 +5,7 @@ SHELL=/bin/bash
 #   - Used to define part of the kubernetes namespace, e.g., in the make command helm-upgrade.%.
 #   - Must be unique among all jupyterhub instances deployed in the cluster because 
 #     resources of the helm deployment are identified by namespace and/or release name.
-main=t23b
+main=23b
 
 # Directory containing the values yaml files for helm release
 yaml_dir := deploy
@@ -16,16 +16,15 @@ registry = localhost:32000
 
 # Docker image information
 jhub := jhub^3.2.1a
-cs1302nb := cs1302nb^0.1.3c
+cs1302nb := cs1302nb^0.1.3e
 cs1302nb_alpine := cs1302nb^0.1.3c^^alpine
 cs5483nb := cs5483nb^0.1.3d
 cs5483nb_collab := $(cs5483nb)^collab
 cs1302nb_collab := $(cs1302nb)^collab
 
-cs1302: image.jhub image.cs1302nb image.cs1302nb_collab image.cs1302nb_alpine
+cs1302b: image.jhub image.cs1302nb image.cs1302nb_collab image.cs1302nb_alpine hub.cs1302b
 
 cs5483: image.jhub image.cs5483nb image.cs5483nb_collab hub.cs5483
-
 
 # Prepare a docker image
 image.%:
@@ -155,9 +154,19 @@ endef
 helm-list.%:
 	@helm list -n jh-$(main)-$* && kubectl get all -n jh-$(main)-$*
 
+# Helm rollback a jupyterhub instance
+helm-rollback.%:
+	@echo "Rolling back release in the Kubernetes cluster..."
+	helm rollback -n jh-$(main)-$* $(main)-$* --wait
+
+# Helm history of a jupyterhub instance
+helm-history.%:
+	@echo "Rolling back release in the Kubernetes cluster..."
+	helm history -n jh-$(main)-$* $(main)-$*
+
 # Helm uninstall a jupyterhub instance
 helm-uninstall.%:
-	@echo "Uninstalling chart from the Kubernetes cluster..."
+	@echo "Uninstalling release from the Kubernetes cluster..."
 	helm uninstall -n jh-$(main)-$* $(main)-$* --wait
 
 # Add/update helm repo
@@ -165,4 +174,4 @@ helm-repo:
 	helm repo add jupyterhub https://jupyterhub.github.io/helm-chart/ --force-update
 
 
-.PHONY: parse-image-info.% docker-build.% docker-push.% image.% test-image.% hub.% helm-upgrade.% test-helm-upgrade.% helm-list.% helm-uninstall.% helm-repo
+.PHONY: parse-image-info.% docker-build.% docker-push.% image.% test-image.% hub.% helm-upgrade.% test-helm-upgrade.% helm-list.% helm-uninstall.% helm-repo envsubst.%

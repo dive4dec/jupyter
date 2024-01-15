@@ -607,6 +607,14 @@ RUN R -e "IRkernel::installspec(sys_prefix = TRUE)"
 #     mamba clean --all -f -y && \
 #     fix-permissions "${CONDA_DIR}"
 
+COPY dive_ai-0.0.1-py3-none-any.whl /tmp/dive_ai-0.0.1-py3-none-any.whl
+
+RUN \
+    pip install --quiet --no-cache-dir \
+    'dive_ai-0.0.1-py3-none-any.whl' && \
+    # mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
 # ----------------------------------------------------------
 # Cleanup
 

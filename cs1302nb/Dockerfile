@@ -213,6 +213,7 @@ RUN for ext in \
         ms-python.python \
         ms-toolsai.jupyter \
         ms-toolsai.vscode-jupyter-powertoys \
+        ms-python.black-formatter \
         streetsidesoftware.code-spell-checker \
         sugatoray.vscode-git-extension-pack \
         Kelvin.vscode-sshfs \
@@ -418,21 +419,22 @@ RUN \
     xubuntu-icon-theme
 
 # Xpra
-# RUN \
-#     wget -O "/usr/share/keyrings/xpra.asc" https://xpra.org/xpra.asc && \
-#     wget -O "/etc/apt/sources.list.d/xpra.sources" https://raw.githubusercontent.com/Xpra-org/xpra/master/packaging/repos/jammy/xpra.sources && \
-#     apt-get update --yes && \
-#     apt-get install --yes --no-install-recommends \
-#     xpra \
-#     xpra-x11 \
-#     xpra-html5
-#     # x11-utils \
-#     # xfonts-base \
-#     # xvfb \
-#     # python3-websockify python3-dbus python3-paramiko python3-pyinotify python3-netifaces \
-#     # && \
-#     # /usr/bin/pip3 install --quiet --no-cache-dir \
-#     # 'pyxdg==0.28'
+RUN \
+    # wget -O "/usr/share/keyrings/xpra.asc" https://xpra.org/xpra.asc && \
+    # wget -O "/etc/apt/sources.list.d/xpra.sources" https://raw.githubusercontent.com/Xpra-org/xpra/master/packaging/repos/jammy/xpra.sources && \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    # xpra \
+    # xpra-x11 \
+    # xpra-html5 \
+    x11-utils \
+    xfonts-base \
+    xvfb \
+    # python3-websockify python3-dbus python3-paramiko python3-pyinotify python3-netifaces \
+    # && \
+    # /usr/bin/pip3 install --quiet --no-cache-dir \
+    # 'pyxdg==0.28' \
+    ;
 
 # fix https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=908156
 # RUN mkdir -p /run/xpra && \
@@ -456,6 +458,14 @@ RUN pip install --quiet --no-cache-dir \
     'jupyter_ai' \
     'openai' \
     && \
+    # mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+COPY dive_ai-0.0.1-py3-none-any.whl /tmp/dive_ai-0.0.1-py3-none-any.whl
+
+RUN \
+    pip install --quiet --no-cache-dir \
+    'dive_ai-0.0.1-py3-none-any.whl' && \
     # mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
