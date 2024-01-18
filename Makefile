@@ -18,13 +18,15 @@ registry = localhost:32000
 jhub := jhub^3.2.1a
 cs1302nb := cs1302nb^0.1.3e
 cs1302nb_alpine := cs1302nb^0.1.3c^^alpine
-cs5483nb := cs5483nb^0.1.3d
+cs5483nb := cs5483nb^0.1.3e
 cs5483nb_collab := $(cs5483nb)^collab
 cs1302nb_collab := $(cs1302nb)^collab
 
 cs1302b: image.jhub image.cs1302nb image.cs1302nb_collab image.cs1302nb_alpine hub.cs1302b
 
 cs5483: image.jhub image.cs5483nb image.cs5483nb_collab hub.cs5483
+
+cs5483t: image.jhub image.cs5483nb image.cs5483nb_collab hub.cs5483t
 
 # Prepare a docker image
 image.%:

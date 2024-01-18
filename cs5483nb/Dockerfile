@@ -607,6 +607,18 @@ RUN R -e "IRkernel::installspec(sys_prefix = TRUE)"
 #     mamba clean --all -f -y && \
 #     fix-permissions "${CONDA_DIR}"
 
+# Voila
+RUN mamba install --quiet --yes \
+    'voila=0.5.*' \
+    && \
+    pip install --quiet --no-cache-dir -U \
+    # needed for nbgrader
+    'tornado==6.4.*' \
+    'dit==1.2.*' \
+    && \    
+    # mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
 COPY dive_ai-0.0.1-py3-none-any.whl /tmp/dive_ai-0.0.1-py3-none-any.whl
 
 RUN \
@@ -614,6 +626,8 @@ RUN \
     'dive_ai-0.0.1-py3-none-any.whl' && \
     # mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
+
+
 
 # ----------------------------------------------------------
 # Cleanup
@@ -650,7 +664,7 @@ CMD ["start-notebook.sh"]
 # Copy local files as late as possible to avoid cache busting
 COPY start.sh /usr/local/bin/
 # Copy local files as late as possible to avoid cache busting
-COPY start-notebook.sh start-singleuser.sh grader_setup /usr/local/bin/
+COPY start-notebook.sh start-singleuser.sh /usr/local/bin/
 # Currently need to have both jupyter_notebook_config and jupyter_server_config to support classic and lab
 COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 
@@ -668,12 +682,12 @@ ENV LD_LIBRARY_PATH="/opt/conda/lib/:${CONDA_DIR}/lib/python3.11/site-packages/n
 ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
 
 ENV NBGRADER_UID=2000 \
-    NBGRADER_USER=nbgrader
+    NBGRADER_USER=nbgrader \
+    COURSE_ID=cs5483_23b
 
 # Create NBGRADER_USER with name nbgrader, UID=2000 and in the 'users' group
 # On jupyterhub, this user should be the owner of the course root and exchange folder for nbgrader.
 RUN useradd -l -M -s /bin/bash -N -u "${NBGRADER_UID}" "${NBGRADER_USER}"
-
 
 # Switch back to jovyan to avoid accidental container runs as root
 USER ${NB_UID}
