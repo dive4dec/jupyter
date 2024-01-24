@@ -592,32 +592,33 @@ USER ${NB_USER}
 # R
 RUN R -e "IRkernel::installspec(sys_prefix = TRUE)"
 
-
-# ML packages
-# RUN export JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64" && \
-#     mamba install --quiet --yes \
-#     'biopython=1.*' \
-#     && \
-#     pip install --quiet --no-cache-dir \
-#     'python-javabridge==4.0.*' \
-#     'python-weka-wrapper3==0.2.*' \
-#     # 'pygraphviz==1.9' \
-#     # 'dit==1.2.*' \
-#     && \
-#     mamba clean --all -f -y && \
-#     fix-permissions "${CONDA_DIR}"
-
-# Voila
-RUN mamba install --quiet --yes \
-    'voila=0.5.*' \
+# Data mining packages
+RUN export JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64" && \
+    mamba install --quiet --yes \
+    'scikit-learn=1.4.*' \
+    'voila=0.5.*' \    
+    'biopython=1.*' \
+    'pyyaml=6.0.*' \
     && \
     pip install --quiet --no-cache-dir -U \
-    # needed for nbgrader
-    'tornado==6.4.*' \
     'dit==1.2.*' \
-    && \    
-    # mamba clean --all -f -y && \
+    # needed for nbgrader    
+    'tornado==6.4.*' \
+    && \
+    mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
+
+# For Weka in Python
+RUN cat <<EOF > /tmp/weka.yaml && mamba env create -p "${CONDA_DIR}/envs/weka" -f /tmp/weka.yaml && rm /tmp/weka.yaml
+dependencies:
+  - python=3.10
+  - pip
+  - pandas
+  - numpy
+  - pip:
+    - python-weka-wrapper3
+    - python-javabridge
+EOF
 
 COPY dive_ai-0.0.1-py3-none-any.whl /tmp/dive_ai-0.0.1-py3-none-any.whl
 
@@ -626,8 +627,6 @@ RUN \
     'dive_ai-0.0.1-py3-none-any.whl' && \
     # mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
-
-
 
 # ----------------------------------------------------------
 # Cleanup
@@ -664,7 +663,7 @@ CMD ["start-notebook.sh"]
 # Copy local files as late as possible to avoid cache busting
 COPY start.sh /usr/local/bin/
 # Copy local files as late as possible to avoid cache busting
-COPY start-notebook.sh start-singleuser.sh /usr/local/bin/
+COPY start-notebook.sh start-singleuser.sh install-vscode-extension /usr/local/bin/
 # Currently need to have both jupyter_notebook_config and jupyter_server_config to support classic and lab
 COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 
