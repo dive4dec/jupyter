@@ -176,237 +176,6 @@ RUN apt-get update --yes && \
     xclip
     # apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Jupyter Notebook, Lab, and Hub
-# Generate a notebook server config
-# Cleanup temporary files
-# Correct permissions
-# Do all this in a single RUN command to avoid duplicating all of the
-# files across image layers when the permissions change
-WORKDIR /tmp
-
-USER ${NB_UID}
-
-RUN mamba install --yes \
-    'nodejs<19' \
-    'notebook==7.0.6' \
-    'jupyterlab==4.0.10' \
-    'jupyterhub==4.0.2' \
-    && \
-    jupyter notebook --generate-config && \
-    # mamba clean --all -f -y && \
-    # npm cache clean --force && \
-    # jupyter lab clean && \
-    rm -rf "/home/${NB_USER}/.cache/yarn" && \
-    fix-permissions "${CONDA_DIR}" && \
-    fix-permissions "/home/${NB_USER}"
-
-USER root
-
-### code-server ###
-RUN apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    curl \
-    && \
-    wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.20.0
-    #  && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Code extensions
-RUN for ext in \
-        ms-python.python \
-        ms-toolsai.jupyter \
-        ms-toolsai.vscode-jupyter-powertoys \
-        ms-python.black-formatter \
-        streetsidesoftware.code-spell-checker \
-        sugatoray.vscode-git-extension-pack \
-        Kelvin.vscode-sshfs \
-        hediet.vscode-drawio \
-        genieai.chatgpt-vscode \
-        ; do \
-        code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
-    done && \
-    fix-permissions "${HOME}" && \
-    fix-permissions /usr/lib/code-server/ && \
-    rm -rf ~/.cache/code-server/ && \
-    rm -rf /tmp/install.sh
-
-ENV JUPYTER_PORT=8888
-EXPOSE $JUPYTER_PORT
-
-ENV TZ=Hongkong
-
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
-
-# fix https://github.com/jupyter/docker-stacks/issues/815
-RUN cat /etc/skel/.bashrc >> /etc/bash.bashrc
-
-
-
-USER ${NB_UID}
-
-RUN mamba install --quiet --yes \
-    # 'code-server=4.17.1' \
-    'websockify=0.11.*' \
-    'jupyter-vscode-proxy=0.5' \
-    'jupytext=1.16.*' \
-    'nbgitpuller=1.2.*' \
-    'black=23.12.*' \
-    'jupyterlab_code_formatter=2.2.*' \
-    'python-lsp-server=1.9.*' \
-    'jupyter-resource-usage==1.0.*' \
-    # 'openai=0.28.*' \
-    # 'jupyter-ai=2.2.*' \
-    && \
-    pip install --quiet --no-cache-dir \
-    'jupyterlab-git==0.50.*' \    
-    'jupyterlab_filesystem_access==0.5.*' \
-    'jupyter-www-proxy' \
-    && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
-USER root
-
-# Programming languages backends
-RUN \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    # C, C++
-    build-essential \
-    unzip \
-    # python
-    # thonny \
-    # python3-dev \
-    gdb \
-    fpc-source \
-    # SQL
-    sqlite3 \
-    pdf2svg
-    # && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# JAVA
-RUN \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    default-jdk default-jre
-
-USER ${NB_USER}
-
-# Programming languages frontends
-RUN npm \
-    # Javascript and Typescript
-    install -g tslab && \
-    tslab install --sys-prefix \
-    && \
-    mamba install --quiet --yes \
-    'graphviz=8.1.*' \
-    # 'xeus-python' \
-    # C, C++
-    'xeus-cling=0.15.*' \
-    # # LaTeX
-    # 'tectonic=0.14.*' \
-    # 'texlab=5.7.*' \
-    # 'chktex=1.7.*' \
-    # # Java
-    # 'openjdk=20.0.*' \
-    && \
-    npm install -g \
-    bash-language-server \
-    vscode-css-languageserver-bin \
-    dockerfile-language-server-nodejs \
-    vscode-html-languageserver-bin \
-    javascript-typescript-langserver \
-    vscode-json-languageserver-bin \
-    yaml-language-server \
-    && \
-    pip install --quiet \
-    # --no-cache-dir \
-    'itikz==0.1.*' \
-    && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}" && \
-    # Java kernel
-    wget 'https://github.com/SpencerPark/IJava/releases/download/v1.3.0/ijava-1.3.0.zip' \
-    -O /tmp/ijava.zip && \
-    unzip /tmp/ijava.zip -d /tmp/ijava && \
-    python /tmp/ijava/install.py --sys-prefix && \
-    rm -rf /tmp/ijava
-
-RUN mamba install --quiet --yes \
-    'manim=0.18.*' \
-    'manimpango=0.5.*' \
-    'pandas=2.1.*' \
-    'matplotlib-base=3.8.*' \
-    'ipympl=0.9.*' \
-    'sympy=1.*' \
-    'jupyterlite=0.2.*' \
-    && \
-    pip install --quiet --no-cache-dir \
-    'divewidgets' \
-    'jupyterlab-myst==2.1.*' \
-    && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
-# Nbgrader
-RUN pip install --quiet --no-cache-dir \
-    'nbgrader==0.9.*' && \
-    # git+https://github.com/dive4dec/nbgrader.git && \
-    fix-permissions "${CONDA_DIR}"
-
-RUN pip install --quiet --no-cache-dir \
-    'jupyterlab_theme_solarized_dark' \
-    'jupyterlab-night' \
-    'jupyterlab_theme_solarized_dark' \
-    'theme-darcula' && \
-    fix-permissions "${CONDA_DIR}"
-
-RUN mkdir -p ${CONDA_DIR}/srv/exchange && chmod ugo+rw $_
-
-RUN jupyter server extension disable --sys-prefix nbgrader.server_extensions.formgrader
-
-COPY --chown=${NB_USER}:${NB_GID} nbgrader_config.py ${CONDA_DIR}/etc/jupyter/nbgrader_config.py
-
-# Slideshow
-RUN pip install --quiet --no-cache-dir \
-    # not compatible with jupyterlab-myst
-    # 'jupyterlab_rise==0.42.*' \
-    'jupyterlab-deck==0.2.*' && \
-    fix-permissions "${CONDA_DIR}"
-
-# Disable news and update
-# See https://jupyterlab.readthedocs.io/en/stable/user/announcements.html
-RUN jupyter labextension disable "@jupyterlab/apputils-extension:announcements"
-
-# MyST Markdown CLI
-RUN npm install -g mystmd
-
-# # Collaboration
-# RUN mamba install --quiet --yes \
-#     'jupyter-collaboration=1.1.*' \
-#     && \
-#     # mamba clean --all -f -y && \
-#     fix-permissions "${CONDA_DIR}"
-
-# latex dependencies for mystmd
-USER root
-
-RUN \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    latexmk \
-    biber \
-    lmodern \
-    && \
-    paperconfig -p a4 \
-    # && \
-    # tlmgr option repository http://ftp.math.utah.edu/pub/tex/historic/systems/texlive/2021/tlnet-final \
-    # && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
-    ;
-
 ### Desktop ###
 RUN \
     apt-get update --yes && \
@@ -448,22 +217,48 @@ RUN \
 #     chmod -R 775 /run/xpra && \
 #     chown -R ${NB_USER}:${NB_GID} /run
 
-USER ${NB_USER}
-
-RUN pip install --quiet --no-cache-dir \
-    'jupyter-remote-desktop-proxy==1.1.*' \
-    # 'jupyter-xprahtml5-proxy==0.3.*' \
+# latex dependencies for mystmd
+RUN \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    latexmk \
+    biber \
+    lmodern \
     && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
+    paperconfig -p a4 \
+    # && \
+    # tlmgr option repository http://ftp.math.utah.edu/pub/tex/historic/systems/texlive/2021/tlnet-final \
+    # && \
+    # apt-get clean && rm -rf /var/lib/apt/lists/*
+    ;
 
-# AI
-RUN pip install --quiet --no-cache-dir \
-    'jupyter_ai' \
-    'openai' \
-    && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
+
+
+# Programming languages backends
+RUN \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    # C, C++
+    build-essential \
+    unzip \
+    # python
+    # thonny \
+    # python3-dev \
+    gdb \
+    fpc-source \
+    # SQL
+    sqlite3 \
+    pdf2svg
+    # && \
+    # apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# JAVA
+RUN \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    default-jdk default-jre
+
+USER ${NB_UID}
 
 # ----------------------------------------------------------
 
@@ -494,6 +289,184 @@ RUN mamba install --quiet --yes \
     # mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
+# https://github.com/Kaggle/docker-python/issues/1267
+RUN mamba install --quiet --yes \
+    openssh && \
+    # mamba install --quiet --yes -c intel intel-extension-for-pytorch && \
+    # mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+# Install Jupyter Notebook, Lab, and Hub
+
+RUN mamba install --yes \
+    # code-server requirement
+    'nodejs<19' \
+    'notebook==7.0.7' \
+    'jupyterlab==4.0.11' \
+    'jupyterhub==4.0.2' \
+    && \
+    jupyter notebook --generate-config && \
+    # mamba clean --all -f -y && \
+    # npm cache clean --force && \
+    # jupyter lab clean && \
+    rm -rf "/home/${NB_USER}/.cache/yarn" && \
+    fix-permissions "${CONDA_DIR}" && \
+    fix-permissions "/home/${NB_USER}"
+
+USER root
+
+ENV JUPYTER_PORT=8888
+EXPOSE $JUPYTER_PORT
+
+ENV TZ=Hongkong
+
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# fix https://github.com/jupyter/docker-stacks/issues/815
+RUN cat /etc/skel/.bashrc >> /etc/bash.bashrc
+
+
+### code-server ###
+RUN apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    curl \
+    && \
+    wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
+    sh /tmp/install.sh --version 4.20.1 && \
+    # apt-get clean && rm -rf /var/lib/apt/lists/*
+    fix-permissions "${HOME}" && \
+    fix-permissions /usr/lib/code-server/ && \
+    rm -rf ~/.cache/code-server/ && \
+    rm -rf /tmp/install.sh    
+
+
+
+
+
+
+USER ${NB_UID}
+
+RUN mamba install --quiet --yes \
+    # 'code-server=4.17.1' \
+    'websockify=0.11.*' \
+    'jupyter-vscode-proxy=0.5' \
+    'jupytext=1.16.*' \
+    'nbgitpuller=1.2.*' \
+    'black=23.12.*' \
+    'jupyterlab_code_formatter=2.2.*' \
+    'python-lsp-server=1.9.*' \
+    'jupyter-resource-usage==1.0.*' \
+    # 'openai=0.28.*' \
+    # 'jupyter-ai=2.2.*' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'jupyterlab-git==0.50.*' \    
+    'jupyterlab_filesystem_access==0.5.*' \
+    'jupyter-www-proxy' \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+
+USER ${NB_USER}
+
+# Programming languages frontends
+RUN npm install -g npm@10.4.0 && \
+    npm \
+    # Javascript and Typescript
+    install -g tslab && \
+    tslab install --sys-prefix \
+    && \
+    mamba install --quiet --yes \
+    # 'graphviz=9.0.*' \
+    # 'xeus-python' \
+    # C, C++
+    'xeus-cling=0.15.*' \
+    # # LaTeX
+    # 'tectonic=0.14.*' \
+    # 'texlab=5.7.*' \
+    # 'chktex=1.7.*' \
+    # # Java
+    # 'openjdk=20.0.*' \
+    && \
+    npm install -g \
+    bash-language-server \
+    vscode-css-languageserver-bin \
+    dockerfile-language-server-nodejs \
+    vscode-html-languageserver-bin \
+    javascript-typescript-langserver \
+    vscode-json-languageserver-bin \
+    yaml-language-server \
+    && \
+    pip install --quiet \
+    # --no-cache-dir \
+    'itikz==0.1.*' \
+    && \
+    # mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}" && \
+    # Java kernel
+    wget 'https://github.com/SpencerPark/IJava/releases/download/v1.3.0/ijava-1.3.0.zip' \
+    -O /tmp/ijava.zip && \
+    unzip /tmp/ijava.zip -d /tmp/ijava && \
+    python /tmp/ijava/install.py --sys-prefix && \
+    rm -rf /tmp/ijava
+
+RUN mamba install --quiet --yes \
+    # 'manim=0.18.*' \
+    # 'manimpango=0.5.*' \
+    'pandas=2.1.*' \
+    'matplotlib-base=3.8.*' \
+    'ipympl=0.9.*' \
+    'sympy=1.*' \
+    'jupyterlite=0.2.*' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'divewidgets' \
+    'jupyterlab-myst==2.1.*' \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+# Nbgrader
+RUN pip install --quiet --no-cache-dir \
+    'nbgrader==0.9.*' && \
+    # git+https://github.com/dive4dec/nbgrader.git && \
+    fix-permissions "${CONDA_DIR}"
+
+
+
+
+
+# MyST Markdown CLI
+RUN npm install -g mystmd
+
+# # Collaboration
+# RUN mamba install --quiet --yes \
+#     'jupyter-collaboration=1.1.*' \
+#     && \
+#     # mamba clean --all -f -y && \
+#     fix-permissions "${CONDA_DIR}"
+
+
+# Desktop
+
+RUN pip install --quiet --no-cache-dir \
+    'jupyter-remote-desktop-proxy==1.1.*' \
+    # 'jupyter-xprahtml5-proxy==0.3.*' \
+    && \
+    # mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+# AI
+RUN pip install --quiet --no-cache-dir \
+    'jupyter_ai' \
+    'openai' \
+    && \
+    # mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+# Data mining
+
 RUN mamba install --quiet --yes \
     altair \
     bokeh \
@@ -519,13 +492,6 @@ RUN mamba install --quiet --yes \
     fix-permissions "${CONDA_DIR}"
 
 
-
-# https://github.com/Kaggle/docker-python/issues/1267
-RUN mamba install --quiet --yes \
-    openssh && \
-    # mamba install --quiet --yes -c intel intel-extension-for-pytorch && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
 
 USER root
 
@@ -596,6 +562,7 @@ RUN R -e "IRkernel::installspec(sys_prefix = TRUE)"
 RUN export JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64" && \
     mamba install --quiet --yes \
     'scikit-learn=1.4.*' \
+    'anaconda::graphviz=2.50.*' \
     'voila=0.5.*' \    
     'biopython=1.*' \
     'pyyaml=6.0.*' \
@@ -605,7 +572,7 @@ RUN export JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64" && \
     # needed for nbgrader    
     'tornado==6.4.*' \
     && \
-    mamba clean --all -f -y && \
+    # mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
 # For Weka in Python
@@ -613,12 +580,67 @@ RUN cat <<EOF > /tmp/weka.yaml && mamba env create -p "${CONDA_DIR}/envs/weka" -
 dependencies:
   - python=3.10
   - pip
+  - ipykernel
   - pandas
   - numpy
   - pip:
     - python-weka-wrapper3
     - python-javabridge
+    - graphviz
 EOF
+
+RUN \
+    mamba install --quiet --yes \
+    'ipykernel=6.29.*' \
+    && \
+    "${CONDA_DIR}/envs/weka/bin/python" -m ipykernel install \
+    --prefix "${CONDA_DIR}" \
+    --name weka --display-name "weka"  \
+    && \
+    # mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+RUN \
+    mamba install --quiet --yes \
+    'jupyter-archive=3.4.*' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'jupyterlab-unfold==0.3.*' \
+    'jupyterlab-favorites==3.2.*' \
+    'lckr_jupyterlab_variableinspector==3.2.*' \
+    && \
+    # mamba clean --all -f -y && \    
+    fix-permissions "${CONDA_DIR}"
+
+# Code extensions
+RUN for ext in \
+        ms-python.python \
+        ms-toolsai.jupyter \
+        ms-toolsai.vscode-jupyter-powertoys \
+        ms-python.black-formatter \
+        streetsidesoftware.code-spell-checker \
+        sugatoray.vscode-git-extension-pack \
+        Kelvin.vscode-sshfs \
+        hediet.vscode-drawio \
+        genieai.chatgpt-vscode \
+        ; do \
+        code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
+    done
+
+# themes
+RUN pip install --quiet --no-cache-dir \
+    'jupyterlab_theme_solarized_dark' \
+    'jupyterlab-night' \
+    'jupyterlab_theme_solarized_dark' \
+    'theme-darcula' && \
+    fix-permissions "${CONDA_DIR}"
+
+# Slideshow
+RUN pip install --quiet --no-cache-dir \
+    # not compatible with jupyterlab-myst
+    # 'jupyterlab_rise==0.42.*' \
+    'jupyterlab-deck==0.2.*' && \
+    fix-permissions "${CONDA_DIR}"
 
 COPY dive_ai-0.0.1-py3-none-any.whl /tmp/dive_ai-0.0.1-py3-none-any.whl
 
@@ -627,6 +649,8 @@ RUN \
     'dive_ai-0.0.1-py3-none-any.whl' && \
     # mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
+
+
 
 # ----------------------------------------------------------
 # Cleanup
@@ -668,6 +692,8 @@ COPY start-notebook.sh start-singleuser.sh install-vscode-extension /usr/local/b
 COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 
 
+
+
 # customize xpra https://xpra.org/manual.html
 # COPY --chown=${NB_USER}:${NB_GID} jupyter_xprahtml5_proxy_init.py /tmp/
 # RUN mv /tmp/jupyter_xprahtml5_proxy_init.py "$(pip show jupyter-xprahtml5-proxy | grep Location | awk '{print $2}')/jupyter_xprahtml5_proxy/__init__.py"
@@ -688,8 +714,26 @@ ENV NBGRADER_UID=2000 \
 # On jupyterhub, this user should be the owner of the course root and exchange folder for nbgrader.
 RUN useradd -l -M -s /bin/bash -N -u "${NBGRADER_UID}" "${NBGRADER_USER}"
 
+
+
 # Switch back to jovyan to avoid accidental container runs as root
 USER ${NB_UID}
+
+# nbgrader deploy
+RUN mkdir -p ${CONDA_DIR}/srv/exchange && chmod ugo+rw $_
+
+RUN jupyter server extension disable --sys-prefix nbgrader.server_extensions.formgrader && \
+    jupyter labextension disable nbgrader:formgrader && \
+    jupyter labextension disable nbgrader:course-list && \
+    jupyter labextension disable nbgrader:create-assignment
+
+COPY --chown=${NB_USER}:${NB_GID} nbgrader_config.py ${CONDA_DIR}/etc/jupyter/nbgrader_config.py
+
+# Disable news and update
+# See https://jupyterlab.readthedocs.io/en/stable/user/announcements.html
+RUN jupyter labextension disable "@jupyterlab/apputils-extension:announcements"
+
+
 
 WORKDIR "${HOME}"
 
