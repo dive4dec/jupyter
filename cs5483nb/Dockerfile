@@ -302,7 +302,7 @@ RUN mamba install --yes \
     # code-server requirement
     'nodejs<19' \
     'notebook==7.0.7' \
-    'jupyterlab==4.0.11' \
+    'jupyterlab==4.0.12' \
     'jupyterhub==4.0.2' \
     && \
     jupyter notebook --generate-config && \
@@ -433,10 +433,6 @@ RUN pip install --quiet --no-cache-dir \
     # git+https://github.com/dive4dec/nbgrader.git && \
     fix-permissions "${CONDA_DIR}"
 
-
-
-
-
 # MyST Markdown CLI
 RUN npm install -g mystmd
 
@@ -447,15 +443,6 @@ RUN npm install -g mystmd
 #     # mamba clean --all -f -y && \
 #     fix-permissions "${CONDA_DIR}"
 
-
-# Desktop
-
-RUN pip install --quiet --no-cache-dir \
-    'jupyter-remote-desktop-proxy==1.1.*' \
-    # 'jupyter-xprahtml5-proxy==0.3.*' \
-    && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
 
 # AI
 RUN pip install --quiet --no-cache-dir \
@@ -553,13 +540,33 @@ RUN R -e "install.packages('IRkernel', dependencies=TRUE, repos='http://cran.rst
     R -e "install.packages('cluster', dependencies=TRUE, repos='http://cran.rstudio.com/')" && \
     R -e "install.packages('dbscan', dependencies=TRUE, repos='http://cran.rstudio.com/')"
 
+# Desktop
+RUN wget -q "https://sourceforge.net/projects/turbovnc/files/3.1/turbovnc_3.1_amd64.deb/download" \
+    -O /tmp/turbovnc_amd64.deb && \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    /tmp/turbovnc_amd64.deb \
+    && \
+    rm /tmp/turbovnc_amd64.deb && \
+    ln -s /opt/TurboVNC/bin/* /usr/local/bin/
+    # && \
+    # apt-get clean && rm -rf /var/lib/apt/lists/*
+
 USER ${NB_USER}
+
+RUN pip install --quiet --no-cache-dir \
+    # 'jupyter-remote-desktop-proxy==1.1.*' \
+    git+https://github.com/b-data/jupyter-remote-desktop-proxy.git \
+    # 'jupyter-xprahtml5-proxy==0.3.*' \
+    && \
+    # mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
 
 # R
 RUN R -e "IRkernel::installspec(sys_prefix = TRUE)"
 
 # Data mining packages
-RUN export JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64" && \
+RUN \
     mamba install --quiet --yes \
     'scikit-learn=1.4.*' \
     'anaconda::graphviz=2.50.*' \
@@ -575,6 +582,8 @@ RUN export JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64" && \
     # mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
+
+
 # For Weka in Python
 RUN cat <<EOF > /tmp/weka.yaml && mamba env create -p "${CONDA_DIR}/envs/weka" -f /tmp/weka.yaml && rm /tmp/weka.yaml
 dependencies:
@@ -583,17 +592,14 @@ dependencies:
   - ipykernel
   - pandas
   - numpy
+  - matplotlib
   - pip:
     - python-weka-wrapper3
     - python-javabridge
     - graphviz
 EOF
 
-RUN \
-    mamba install --quiet --yes \
-    'ipykernel=6.29.*' \
-    && \
-    "${CONDA_DIR}/envs/weka/bin/python" -m ipykernel install \
+RUN "${CONDA_DIR}/envs/weka/bin/python" -m ipykernel install \
     --prefix "${CONDA_DIR}" \
     --name weka --display-name "weka"  \
     && \
@@ -736,6 +742,8 @@ RUN jupyter labextension disable "@jupyterlab/apputils-extension:announcements"
 
 
 WORKDIR "${HOME}"
+
+ENV JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64"
 
 
 # ----------------------------------------------------------

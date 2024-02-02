@@ -18,7 +18,7 @@ registry = localhost:32000
 jhub := jhub^3.2.1a
 cs1302nb := cs1302nb^0.1.3e
 cs1302nb_alpine := cs1302nb^0.1.3c^^alpine
-cs5483nb := cs5483nb^0.1.5
+cs5483nb := cs5483nb^0.1.5a
 cs5483nb_collab := $(cs5483nb)^collab
 cs1302nb_collab := $(cs1302nb)^collab
 
