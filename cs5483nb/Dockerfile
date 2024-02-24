@@ -332,7 +332,7 @@ RUN apt-get update --yes && \
     curl \
     && \
     wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.20.1 && \
+    sh /tmp/install.sh --version 4.21.0 && \
     # apt-get clean && rm -rf /var/lib/apt/lists/*
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
@@ -590,6 +590,7 @@ dependencies:
   - python=3.10
   - pip
   - ipykernel
+  - ipympl
   - pandas
   - numpy
   - matplotlib
