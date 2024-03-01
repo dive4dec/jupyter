@@ -332,7 +332,7 @@ RUN apt-get update --yes && \
     curl \
     && \
     wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.21.0 && \
+    sh /tmp/install.sh --version 4.21.1 && \
     # apt-get clean && rm -rf /var/lib/apt/lists/*
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
@@ -415,6 +415,7 @@ RUN mamba install --quiet --yes \
     # 'manim=0.18.*' \
     # 'manimpango=0.5.*' \
     'pandas=2.1.*' \
+    'pyarrow=15.0.*' \
     'matplotlib-base=3.8.*' \
     'ipympl=0.9.*' \
     'sympy=1.*' \
@@ -592,8 +593,12 @@ dependencies:
   - ipykernel
   - ipympl
   - pandas
+  - pyarrow
   - numpy
   - matplotlib
+  - scikit-learn
+  - joblib
+  - scipy
   - pip:
     - python-weka-wrapper3
     - python-javabridge
