@@ -301,8 +301,8 @@ RUN mamba install --quiet --yes \
 RUN mamba install --yes \
     # code-server requirement
     'nodejs<19' \
-    'notebook==7.0.7' \
-    'jupyterlab==4.0.12' \
+    'notebook==7.1.1' \
+    'jupyterlab==4.1.2' \
     'jupyterhub==4.0.2' \
     && \
     jupyter notebook --generate-config && \
@@ -332,7 +332,7 @@ RUN apt-get update --yes && \
     curl \
     && \
     wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.21.1 && \
+    sh /tmp/install.sh --version 4.21.2 && \
     # apt-get clean && rm -rf /var/lib/apt/lists/*
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
@@ -430,8 +430,8 @@ RUN mamba install --quiet --yes \
 
 # Nbgrader
 RUN pip install --quiet --no-cache-dir \
-    'nbgrader==0.9.*' && \
-    # git+https://github.com/dive4dec/nbgrader.git && \
+    # 'nbgrader==0.9.*' && \
+    git+https://github.com/jupyter/nbgrader.git@refs/pull/1864/head && \
     fix-permissions "${CONDA_DIR}"
 
 # MyST Markdown CLI
@@ -576,7 +576,7 @@ RUN \
     'pyyaml=6.0.*' \
     && \
     pip install --quiet --no-cache-dir -U \
-    'dit==1.2.*' \
+    'dit==1.5.*' \
     # needed for nbgrader    
     'tornado==6.4.*' \
     && \
