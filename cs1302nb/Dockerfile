@@ -1,6 +1,10 @@
-ARG ROOT_CONTAINER=ubuntu:22.04
+ARG ROOT_CONTAINER=ubuntu:24.04
 
 FROM $ROOT_CONTAINER as foundation
+
+# Fix the UID conflict with user ubuntu when jovyan needs to be created later. 
+# See https://bugs.launchpad.net/cloud-images/+bug/2005129
+RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu
 
 ARG NB_USER="jovyan"
 ARG NB_UID="1000"
@@ -176,21 +180,57 @@ RUN apt-get update --yes && \
     xclip
     # apt-get clean && rm -rf /var/lib/apt/lists/*
 
+### Desktop ###
+RUN \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    emacs \    
+    thonny \
+    dbus-x11 \
+    xfce4 \
+    xfce4-panel \
+    xfce4-session \
+    xfce4-settings \
+    xorg \
+    xubuntu-icon-theme
+
+# Xpra
+RUN \
+    # wget -O "/usr/share/keyrings/xpra.asc" https://xpra.org/xpra.asc && \
+    # wget -O "/etc/apt/sources.list.d/xpra.sources" https://raw.githubusercontent.com/Xpra-org/xpra/master/packaging/repos/jammy/xpra.sources && \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    # xpra \
+    # xpra-x11 \
+    # xpra-html5 \
+    x11-utils \
+    xfonts-base \
+    xvfb \
+    # python3-websockify python3-dbus python3-paramiko python3-pyinotify python3-netifaces \
+    # && \
+    # /usr/bin/pip3 install --quiet --no-cache-dir \
+    # 'pyxdg==0.28' \
+    ;
+
+# fix https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=908156
+# RUN mkdir -p /run/xpra && \
+#     mkdir -p /run/user/${NB_UID}/xpra && \
+#     # fix permission for NB_USER to start xpra and create sockets under /run
+#     chmod -R 700 /run/user && \
+#     chmod -R 775 /run/xpra && \
+#     chown -R ${NB_USER}:${NB_GID} /run
+
 # Install Jupyter Notebook, Lab, and Hub
-# Generate a notebook server config
-# Cleanup temporary files
-# Correct permissions
-# Do all this in a single RUN command to avoid duplicating all of the
-# files across image layers when the permissions change
 WORKDIR /tmp
 
 USER ${NB_UID}
 
 RUN mamba install --yes \
+    # code-server requirement
     'nodejs<19' \
-    'notebook==7.0.6' \
-    'jupyterlab==4.0.10' \
-    'jupyterhub==4.0.2' \
+    'notebook==7.2.0' \
+    'jupyterlab==4.2.0' \
+    'jupyterhub==4.1.5' \
     && \
     jupyter notebook --generate-config && \
     # mamba clean --all -f -y && \
@@ -201,31 +241,6 @@ RUN mamba install --yes \
     fix-permissions "/home/${NB_USER}"
 
 USER root
-
-### code-server ###
-RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.20.0
-    #  && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Code extensions
-RUN for ext in \
-        ms-python.python \
-        ms-toolsai.jupyter \
-        ms-toolsai.vscode-jupyter-powertoys \
-        ms-python.black-formatter \
-        streetsidesoftware.code-spell-checker \
-        sugatoray.vscode-git-extension-pack \
-        Kelvin.vscode-sshfs \
-        hediet.vscode-drawio \
-        genieai.chatgpt-vscode \
-        ; do \
-        code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
-    done && \
-    fix-permissions "${HOME}" && \
-    fix-permissions /usr/lib/code-server/ && \
-    rm -rf ~/.cache/code-server/ && \
-    rm -rf /tmp/install.sh
 
 ENV JUPYTER_PORT=8888
 EXPOSE $JUPYTER_PORT
@@ -238,25 +253,39 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 RUN cat /etc/skel/.bashrc >> /etc/bash.bashrc
 
 
+### code-server ###
+RUN apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    curl \
+    && \
+    wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
+    sh /tmp/install.sh --version 4.89.1 && \
+    # apt-get clean && rm -rf /var/lib/apt/lists/*
+    fix-permissions "${HOME}" && \
+    fix-permissions /usr/lib/code-server/ && \
+    rm -rf ~/.cache/code-server/ && \
+    rm -rf /tmp/install.sh    
+
+
+
+
+
 
 USER ${NB_UID}
 
 RUN mamba install --quiet --yes \
-    # 'code-server=4.17.1' \
     'websockify=0.11.*' \
-    'jupyter-vscode-proxy=0.5' \
+    'jupyter-vscode-proxy=0.6' \
     'jupytext=1.16.*' \
     'nbgitpuller=1.2.*' \
-    'black=23.12.*' \
+    'black=24.4.*' \
     'jupyterlab_code_formatter=2.2.*' \
-    'python-lsp-server=1.9.*' \
+    'python-lsp-server=1.11.*' \
     'jupyter-resource-usage==1.0.*' \
-    # 'openai=0.28.*' \
-    # 'jupyter-ai=2.2.*' \
     && \
     pip install --quiet --no-cache-dir \
     'jupyterlab-git==0.50.*' \    
-    'jupyterlab_filesystem_access==0.5.*' \
+    'jupyterlab_filesystem_access==0.6.*' \
     'jupyter-www-proxy' \
     && \
     mamba clean --all -f -y && \
@@ -291,13 +320,14 @@ RUN \
 USER ${NB_USER}
 
 # Programming languages frontends
-RUN npm \
+RUN npm install -g npm@10.8.0 && \
+    npm \
     # Javascript and Typescript
     install -g tslab && \
     tslab install --sys-prefix \
     && \
     mamba install --quiet --yes \
-    'graphviz=8.1.*' \
+    # 'graphviz=9.0.*' \
     # 'xeus-python' \
     # C, C++
     'xeus-cling=0.15.*' \
@@ -333,15 +363,15 @@ RUN npm \
 RUN mamba install --quiet --yes \
     'manim=0.18.*' \
     'manimpango=0.5.*' \
-    'pandas=2.1.*' \
+    'pandas=2.2.*' \
     'matplotlib-base=3.8.*' \
     'ipympl=0.9.*' \
     'sympy=1.*' \
-    'jupyterlite=0.2.*' \
+    'jupyterlite=0.3.*' \
     && \
     pip install --quiet --no-cache-dir \
     'divewidgets' \
-    'jupyterlab-myst==2.1.*' \
+    'jupyterlab-myst==2.4.*' \
     && \
     # mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
@@ -351,30 +381,6 @@ RUN pip install --quiet --no-cache-dir \
     'nbgrader==0.9.*' && \
     # git+https://github.com/dive4dec/nbgrader.git && \
     fix-permissions "${CONDA_DIR}"
-
-RUN pip install --quiet --no-cache-dir \
-    'jupyterlab_theme_solarized_dark' \
-    'jupyterlab-night' \
-    'jupyterlab_theme_solarized_dark' \
-    'theme-darcula' && \
-    fix-permissions "${CONDA_DIR}"
-
-RUN mkdir -p ${CONDA_DIR}/srv/exchange && chmod ugo+rw $_
-
-RUN jupyter server extension disable --sys-prefix nbgrader.server_extensions.formgrader
-
-COPY --chown=${NB_USER}:${NB_GID} nbgrader_config.py ${CONDA_DIR}/etc/jupyter/nbgrader_config.py
-
-# Slideshow
-RUN pip install --quiet --no-cache-dir \
-    # not compatible with jupyterlab-myst
-    # 'jupyterlab_rise==0.42.*' \
-    'jupyterlab-deck==0.2.*' && \
-    fix-permissions "${CONDA_DIR}"
-
-# Disable news and update
-# See https://jupyterlab.readthedocs.io/en/stable/user/announcements.html
-RUN jupyter labextension disable "@jupyterlab/apputils-extension:announcements"
 
 # MyST Markdown CLI
 RUN npm install -g mystmd
@@ -403,51 +409,25 @@ RUN \
     # apt-get clean && rm -rf /var/lib/apt/lists/*
     ;
 
-### Desktop ###
-RUN \
+
+
+# Desktop
+RUN wget -q "https://sourceforge.net/projects/turbovnc/files/3.1/turbovnc_3.1_amd64.deb/download" \
+    -O /tmp/turbovnc_amd64.deb && \
     apt-get update --yes && \
     apt-get install --yes --no-install-recommends \
-    emacs \    
-    thonny \
-    dbus-x11 \
-    libgl1-mesa-glx \
-    xfce4 \
-    xfce4-panel \
-    xfce4-session \
-    xfce4-settings \
-    xorg \
-    xubuntu-icon-theme
-
-# Xpra
-RUN \
-    # wget -O "/usr/share/keyrings/xpra.asc" https://xpra.org/xpra.asc && \
-    # wget -O "/etc/apt/sources.list.d/xpra.sources" https://raw.githubusercontent.com/Xpra-org/xpra/master/packaging/repos/jammy/xpra.sources && \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    # xpra \
-    # xpra-x11 \
-    # xpra-html5 \
-    x11-utils \
-    xfonts-base \
-    xvfb \
-    # python3-websockify python3-dbus python3-paramiko python3-pyinotify python3-netifaces \
-    # && \
-    # /usr/bin/pip3 install --quiet --no-cache-dir \
-    # 'pyxdg==0.28' \
-    ;
-
-# fix https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=908156
-# RUN mkdir -p /run/xpra && \
-#     mkdir -p /run/user/${NB_UID}/xpra && \
-#     # fix permission for NB_USER to start xpra and create sockets under /run
-#     chmod -R 700 /run/user && \
-#     chmod -R 775 /run/xpra && \
-#     chown -R ${NB_USER}:${NB_GID} /run
+    /tmp/turbovnc_amd64.deb \
+    && \
+    rm /tmp/turbovnc_amd64.deb && \
+    ln -s /opt/TurboVNC/bin/* /usr/local/bin/
+# && \
+    # apt-get clean && rm -rf /var/lib/apt/lists/*
 
 USER ${NB_USER}
 
 RUN pip install --quiet --no-cache-dir \
-    'jupyter-remote-desktop-proxy==1.1.*' \
+    'jupyter-remote-desktop-proxy==2.0.*' \
+    # git+https://github.com/b-data/jupyter-remote-desktop-proxy.git@QGIS \
     # 'jupyter-xprahtml5-proxy==0.3.*' \
     && \
     # mamba clean --all -f -y && \
@@ -457,8 +437,37 @@ RUN pip install --quiet --no-cache-dir \
 RUN pip install --quiet --no-cache-dir \
     'jupyter_ai' \
     'openai' \
+    # needed for nbgrader 
+    'tornado==6.4.*' \
     && \
     # mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+RUN \
+    mamba install --quiet --yes \
+    'jupyter-archive=3.4.*' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'jupyterlab-unfold==0.3.*' \
+    'jupyterlab-favorites==3.2.*' \
+    'lckr_jupyterlab_variableinspector==3.2.*' \
+    && \
+    # mamba clean --all -f -y && \    
+    fix-permissions "${CONDA_DIR}"
+
+# themes
+RUN pip install --quiet --no-cache-dir \
+    'jupyterlab_theme_solarized_dark' \
+    'jupyterlab-night' \
+    'jupyterlab_theme_solarized_dark' \
+    'theme-darcula' && \
+    fix-permissions "${CONDA_DIR}"
+
+# Slideshow
+RUN pip install --quiet --no-cache-dir \
+    # not compatible with jupyterlab-myst
+    # 'jupyterlab_rise==0.42.*' \
+    'jupyterlab-deck==0.2.*' && \
     fix-permissions "${CONDA_DIR}"
 
 COPY dive_ai-0.0.1-py3-none-any.whl /tmp/dive_ai-0.0.1-py3-none-any.whl
@@ -468,6 +477,33 @@ RUN \
     'dive_ai-0.0.1-py3-none-any.whl' && \
     # mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
+
+# Copy local files as late as possible to avoid cache busting
+COPY start.sh /usr/local/bin/
+COPY start-notebook.sh start-singleuser.sh install-vscode-extension /usr/local/bin/
+# Currently need to have both jupyter_notebook_config and jupyter_server_config to support classic and lab
+COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
+
+# Code extensions
+RUN for ext in \
+        ms-python.python \
+        ms-toolsai.jupyter \
+        ms-toolsai.vscode-jupyter-powertoys \
+        ms-python.black-formatter \
+        streetsidesoftware.code-spell-checker \
+        sugatoray.vscode-git-extension-pack \
+        Kelvin.vscode-sshfs \
+        hediet.vscode-drawio \
+        ; do \
+        code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
+    done
+
+RUN for ext in \
+    GitHub.copilot-chat@0.15.2 \
+    GitHub.copilot@1.194.0 \
+    ; do \
+    install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
+    done
 
 # ----------------------------------------------------------
 # Cleanup
@@ -501,30 +537,43 @@ ENTRYPOINT ["tini", "-g", "--"]
 # Configure container startup
 CMD ["start-notebook.sh"]
 
-# Copy local files as late as possible to avoid cache busting
-COPY start.sh /usr/local/bin/
-# Copy local files as late as possible to avoid cache busting
-COPY start-notebook.sh start-singleuser.sh grader_setup /usr/local/bin/
-# Currently need to have both jupyter_notebook_config and jupyter_server_config to support classic and lab
-COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
-
 
 # customize xpra https://xpra.org/manual.html
 # COPY --chown=${NB_USER}:${NB_GID} jupyter_xprahtml5_proxy_init.py /tmp/
 # RUN mv /tmp/jupyter_xprahtml5_proxy_init.py "$(pip show jupyter-xprahtml5-proxy | grep Location | awk '{print $2}')/jupyter_xprahtml5_proxy/__init__.py"
 
 ENV NBGRADER_UID=2000 \
-    NBGRADER_USER=nbgrader
+    NBGRADER_USER=nbgrader \
+    COURSE_ID=cs1302_24a
 
 # Create NBGRADER_USER with name nbgrader, UID=2000 and in the 'users' group
 # On jupyterhub, this user should be the owner of the course root and exchange folder for nbgrader.
 RUN useradd -l -M -s /bin/bash -N -u "${NBGRADER_UID}" "${NBGRADER_USER}"
 
 
+
 # Switch back to jovyan to avoid accidental container runs as root
 USER ${NB_UID}
 
+# nbgrader deploy
+RUN mkdir -p ${CONDA_DIR}/srv/exchange && chmod ugo+rw $_
+
+RUN jupyter server extension disable --sys-prefix nbgrader.server_extensions.formgrader && \
+    jupyter labextension disable nbgrader:formgrader && \
+    jupyter labextension disable nbgrader:course-list && \
+    jupyter labextension disable nbgrader:create-assignment
+
+COPY --chown=${NB_USER}:${NB_GID} nbgrader_config.py ${CONDA_DIR}/etc/jupyter/nbgrader_config.py
+
+# Disable news and update
+# See https://jupyterlab.readthedocs.io/en/stable/user/announcements.html
+RUN jupyter labextension disable "@jupyterlab/apputils-extension:announcements"
+
+
+
 WORKDIR "${HOME}"
+
+ENV JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64"
 
 
 # ----------------------------------------------------------
@@ -535,7 +584,7 @@ USER ${NB_USER}
 
 # Collaboration
 RUN mamba install --quiet --yes \
-    'jupyter-collaboration=1.2.*' \
+    'jupyter-collaboration=2.1.*' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
