@@ -6,6 +6,12 @@ FROM $ROOT_CONTAINER as foundation
 # See https://bugs.launchpad.net/cloud-images/+bug/2005129
 RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu
 
+# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Avoid prompt for user input for installation of dependencies
+ENV DEBIAN_FRONTEND noninteractive
+
 ARG NB_USER="jovyan"
 ARG NB_UID="1000"
 ARG NB_GID="100"
@@ -18,57 +24,39 @@ ENV CONDA_DIR=/opt/conda \
     NB_GID=${NB_GID} \
     LC_ALL=en_US.UTF-8 \
     LANG=en_US.UTF-8 \
-    LANGUAGE=en_US.UTF-8
+    LANGUAGE=en_US.UTF-8 \
+    TZ=Hongkong
 ENV PATH="${CONDA_DIR}/bin:${PATH}" \
     HOME="/home/${NB_USER}"
 
-# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
-# Fix: https://github.com/koalaman/shellcheck/wiki/SC3014
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
+    
 USER root
-
-# Install all OS dependencies for notebook server that starts but lacks all
-# features (e.g., download as all possible file formats)
-ENV DEBIAN_FRONTEND noninteractive
-
 FROM foundation as base
 
 RUN apt-get update --yes && \
-    # - apt-get upgrade is run to patch known vulnerabilities in apt-get packages as
-    #   the ubuntu base image is rebuilt too seldom sometimes (less than once a month)
+    # Patch newly discovered vulnerabilities in apt-get packages
     apt-get upgrade --yes && \
     apt-get install --yes --no-install-recommends \
-    # - bzip2 is necessary to extract the micromamba executable.
+    # To extract micromamba
     bzip2 \
     ca-certificates \
     locales \
     sudo \
-    # - tini is installed as a helpful container entrypoint that reaps zombie
-    #   processes and such of the actual executable we want to start, see
-    #   https://github.com/krallin/tini#why-tini for details.
+    # used as an entrypoint that reaps zombie processes.
+    # See https://github.com/krallin/tini#why-tini
     tini \
     wget \
     less \
     curl \
     && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
-    locale-gen
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Configure environment
-ENV CONDA_DIR=/opt/conda \
-    SHELL=/bin/bash \
-    NB_USER="${NB_USER}" \
-    NB_UID=${NB_UID} \
-    NB_GID=${NB_GID} \
-    LC_ALL=en_US.UTF-8 \
-    LANG=en_US.UTF-8 \
-    LANGUAGE=en_US.UTF-8
-ENV PATH="${CONDA_DIR}/bin:${PATH}" \
-    HOME="/home/${NB_USER}"
+RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
+    locale-gen && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# Copy a script that we will use to correct permissions after running certain commands
+
+# A script to correct permissions after running certain commands
 COPY fix-permissions /usr/local/bin/fix-permissions
 RUN chmod a+rx /usr/local/bin/fix-permissions
 
@@ -93,22 +81,11 @@ RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
 USER ${NB_UID}
 
 # Pin python version here, or set it to "default"
-ARG PYTHON_VERSION=3.11
-
-# Setup work directory for backward-compatibility
-RUN mkdir "/home/${NB_USER}/work" && \
-    fix-permissions "/home/${NB_USER}"
+ARG PYTHON_VERSION=3.12
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
-#   Similar projects using Micromamba:
-#     - Micromamba-Docker: <https://github.com/mamba-org/micromamba-docker>
-#     - repo2docker: <https://github.com/jupyterhub/repo2docker>
 # Install Python, Mamba and jupyter_core
-# Cleanup temporary files and remove Micromamba
-# Correct permissions
-# Do all this in a single RUN command to avoid duplicating all of the
-# files across image layers when the permissions change
 COPY --chown="${NB_UID}:${NB_GID}" initial-condarc "${CONDA_DIR}/.condarc"
 WORKDIR /tmp
 RUN set -x && \
@@ -138,31 +115,18 @@ RUN set -x && \
     fix-permissions "${CONDA_DIR}" && \
     fix-permissions "/home/${NB_USER}"
 
-# ------------------------------------
-# Copyright (c) Jupyter Development Team.
-# Distributed under the terms of the Modified BSD License.
-
 USER root
 
 # Install all OS dependencies for notebook server that starts but lacks all
 # features (e.g., download as all possible file formats)
-RUN \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    fonts-liberation \
-    # - pandoc is used to convert notebooks to html files
-    #   it's not present in aarch64 ubuntu image, so we install it here
-    pandoc \
-    # - run-one - a wrapper script that runs no more
-    #   than one unique  instance  of  some  command with a unique set of arguments,
-    #   we use `run-one-constantly` to support `RESTARTABLE` option
-    run-one 
-    # && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Install all OS dependencies for fully functional notebook server
 RUN apt-get update --yes && \
     apt-get install --yes --no-install-recommends \
+    fonts-liberation \
+    # To convert notebooks to html files
+    pandoc \
+    # A wrapper script that runs no more
+    # to support `RESTARTABLE` option
+    run-one \
     # Common useful utilities
     git \
     nano-tiny \
@@ -172,13 +136,13 @@ RUN apt-get update --yes && \
     # git-over-ssh
     openssh-client \
     # nbconvert dependencies
-    # https://nbconvert.readthedocs.io/en/latest/install.html#installing-tex
+    # See https://nbconvert.readthedocs.io/en/latest/install.html#installing-tex
     texlive-xetex \
     texlive-fonts-recommended \
     texlive-plain-generic \
     # Enable clipboard on Linux host systems
-    xclip
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
+    xclip && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ### Desktop ###
 RUN \
@@ -192,33 +156,11 @@ RUN \
     xfce4-session \
     xfce4-settings \
     xorg \
-    xubuntu-icon-theme
-
-# Xpra
-RUN \
-    # wget -O "/usr/share/keyrings/xpra.asc" https://xpra.org/xpra.asc && \
-    # wget -O "/etc/apt/sources.list.d/xpra.sources" https://raw.githubusercontent.com/Xpra-org/xpra/master/packaging/repos/jammy/xpra.sources && \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    # xpra \
-    # xpra-x11 \
-    # xpra-html5 \
+    xubuntu-icon-theme \
     x11-utils \
     xfonts-base \
     xvfb \
-    # python3-websockify python3-dbus python3-paramiko python3-pyinotify python3-netifaces \
-    # && \
-    # /usr/bin/pip3 install --quiet --no-cache-dir \
-    # 'pyxdg==0.28' \
     ;
-
-# fix https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=908156
-# RUN mkdir -p /run/xpra && \
-#     mkdir -p /run/user/${NB_UID}/xpra && \
-#     # fix permission for NB_USER to start xpra and create sockets under /run
-#     chmod -R 700 /run/user && \
-#     chmod -R 775 /run/xpra && \
-#     chown -R ${NB_USER}:${NB_GID} /run
 
 # Install Jupyter Notebook, Lab, and Hub
 WORKDIR /tmp
@@ -227,15 +169,15 @@ USER ${NB_UID}
 
 RUN mamba install --yes \
     # code-server requirement
-    'nodejs<19' \
-    'notebook==7.2.0' \
-    'jupyterlab==4.2.0' \
-    'jupyterhub==4.1.5' \
+    'nodejs==20.12.*' \
+    'notebook==7.2.*' \
+    'jupyterlab==4.2.*' \
+    'jupyterhub==5.0.*' \
     && \
     jupyter notebook --generate-config && \
-    # mamba clean --all -f -y && \
-    # npm cache clean --force && \
-    # jupyter lab clean && \
+    mamba clean --all -f -y && \
+    npm cache clean --force && \
+    jupyter lab clean && \
     rm -rf "/home/${NB_USER}/.cache/yarn" && \
     fix-permissions "${CONDA_DIR}" && \
     fix-permissions "/home/${NB_USER}"
@@ -245,13 +187,8 @@ USER root
 ENV JUPYTER_PORT=8888
 EXPOSE $JUPYTER_PORT
 
-ENV TZ=Hongkong
-
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
-
 # fix https://github.com/jupyter/docker-stacks/issues/815
 RUN cat /etc/skel/.bashrc >> /etc/bash.bashrc
-
 
 ### code-server ###
 RUN apt-get update --yes && \
@@ -259,17 +196,12 @@ RUN apt-get update --yes && \
     curl \
     && \
     wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.89.1 && \
+    sh /tmp/install.sh --version 4.90.0 && \
     # apt-get clean && rm -rf /var/lib/apt/lists/*
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
-    rm -rf /tmp/install.sh    
-
-
-
-
-
+    rm -rf /tmp/install.sh
 
 USER ${NB_UID}
 
@@ -300,16 +232,13 @@ RUN \
     # C, C++
     build-essential \
     unzip \
-    # python
-    # thonny \
-    # python3-dev \
     gdb \
     fpc-source \
     # SQL
     sqlite3 \
-    pdf2svg
-    # && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
+    pdf2svg \
+    && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # JAVA
 RUN \
@@ -317,49 +246,55 @@ RUN \
     apt-get install --yes --no-install-recommends \
     default-jdk default-jre
 
+# MIT Scheme
+COPY mit-scheme/ /tmp/mit-scheme/
+RUN bash /tmp/mit-scheme/buildscript.sh
+
+# For installing some jupyter kernels
+RUN apt-get update --yes && \
+    apt-get install --yes --no-install-recommends libzmq3-dev
+
 USER ${NB_USER}
 
-# Programming languages frontends
-RUN npm install -g npm@10.8.0 && \
-    npm \
+# # Programming languages supports
+RUN npm install -g npm@^10.8.0 && \
+    npm install -g \
+    # Documentations with MyST
+    mystmd \
     # Javascript and Typescript
-    install -g tslab && \
+    tslab && \
     tslab install --sys-prefix \
     && \
     mamba install --quiet --yes \
-    # 'graphviz=9.0.*' \
-    # 'xeus-python' \
     # C, C++
     'xeus-cling=0.15.*' \
-    # # LaTeX
-    # 'tectonic=0.14.*' \
-    # 'texlab=5.7.*' \
-    # 'chktex=1.7.*' \
-    # # Java
-    # 'openjdk=20.0.*' \
+    # Java
+    'openjdk=22.0.*' \
+    # Documentations
+    'jupyterlite=0.3.*' \
     && \
-    npm install -g \
-    bash-language-server \
-    vscode-css-languageserver-bin \
-    dockerfile-language-server-nodejs \
-    vscode-html-languageserver-bin \
-    javascript-typescript-langserver \
-    vscode-json-languageserver-bin \
-    yaml-language-server \
-    && \
-    pip install --quiet \
-    # --no-cache-dir \
+    pip install --quiet --no-cache-dir \
+    'calysto-scheme==1.4.*' \
+    'jupyterlab-myst==2.4.*' \
+    # Documentations
     'itikz==0.1.*' \
+    'nbdev==2.3.*' \
+    'jupyterlab-quarto==0.3.*' \
     && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}" && \
+    # scheme kernel
+    python3 -m calysto_scheme install --sys-prefix && \
     # Java kernel
     wget 'https://github.com/SpencerPark/IJava/releases/download/v1.3.0/ijava-1.3.0.zip' \
     -O /tmp/ijava.zip && \
     unzip /tmp/ijava.zip -d /tmp/ijava && \
     python /tmp/ijava/install.py --sys-prefix && \
-    rm -rf /tmp/ijava
+    rm -rf /tmp/ijava \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}" && \
+    npm cache clean --force
 
+# Other packages needed by the course
 RUN mamba install --quiet --yes \
     'manim=0.18.*' \
     'manimpango=0.5.*' \
@@ -367,32 +302,28 @@ RUN mamba install --quiet --yes \
     'matplotlib-base=3.8.*' \
     'ipympl=0.9.*' \
     'sympy=1.*' \
-    'jupyterlite=0.3.*' \
     && \
     pip install --quiet --no-cache-dir \
     'divewidgets' \
-    'jupyterlab-myst==2.4.*' \
+    'nbgrader==0.9.*' \
     && \
-    # mamba clean --all -f -y && \
+    mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
-# Nbgrader
-RUN pip install --quiet --no-cache-dir \
-    'nbgrader==0.9.*' && \
-    # git+https://github.com/dive4dec/nbgrader.git && \
-    fix-permissions "${CONDA_DIR}"
+USER root
 
-# MyST Markdown CLI
-RUN npm install -g mystmd
+# Maxima
+COPY maxima/ /tmp/maxima/
+RUN bash /tmp/maxima/buildscript.sh
 
-# # Collaboration
-# RUN mamba install --quiet --yes \
-#     'jupyter-collaboration=1.1.*' \
-#     && \
-#     # mamba clean --all -f -y && \
-#     fix-permissions "${CONDA_DIR}"
+COPY --chown=${NB_USER}:${NB_GID} quicklisp /tmp/quicklisp
+RUN mkdir -p /opt/quicklisp && chown -R ${NB_USER} $_ && fix-permissions $_ && \
+    mv /tmp/quicklisp/sbclrc /etc/
+    
+USER ${NB_USER}
+RUN bash /tmp/quicklisp/buildscript.sh
 
-# latex dependencies for mystmd
+# Dependencies for mystmd
 USER root
 
 RUN \
@@ -403,13 +334,8 @@ RUN \
     lmodern \
     && \
     paperconfig -p a4 \
-    # && \
-    # tlmgr option repository http://ftp.math.utah.edu/pub/tex/historic/systems/texlive/2021/tlnet-final \
-    # && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
-    ;
-
-
+    && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Desktop
 RUN wget -q "https://sourceforge.net/projects/turbovnc/files/3.1/turbovnc_3.1_amd64.deb/download" \
@@ -419,30 +345,47 @@ RUN wget -q "https://sourceforge.net/projects/turbovnc/files/3.1/turbovnc_3.1_am
     /tmp/turbovnc_amd64.deb \
     && \
     rm /tmp/turbovnc_amd64.deb && \
-    ln -s /opt/TurboVNC/bin/* /usr/local/bin/
-# && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
+    ln -s /opt/TurboVNC/bin/* /usr/local/bin/ && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 USER ${NB_USER}
 
 RUN pip install --quiet --no-cache-dir \
     'jupyter-remote-desktop-proxy==2.0.*' \
     # git+https://github.com/b-data/jupyter-remote-desktop-proxy.git@QGIS \
-    # 'jupyter-xprahtml5-proxy==0.3.*' \
     && \
-    # mamba clean --all -f -y && \
+    mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
 # AI
+USER root
+
+RUN curl -fsSL https://ollama.com/install.sh | sh
+
+USER ${NB_USER}
+
+# PyTorch
+RUN pip install --quiet --no-cache-dir \
+    'torch' \
+    'torchvision' \
+    'torchaudio' \
+    --index-url https://download.pytorch.org/whl/cu121 && \
+    pip install --quiet --no-cache-dir \
+    'transformers' \
+    'torchtune'
+
+# Other AI tools
 RUN pip install --quiet --no-cache-dir \
     'jupyter_ai' \
     'openai' \
+    'ollama' \
     # needed for nbgrader 
     'tornado==6.4.*' \
     && \
-    # mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
+
+# Other UI enhancements
 RUN \
     mamba install --quiet --yes \
     'jupyter-archive=3.4.*' \
@@ -452,10 +395,10 @@ RUN \
     'jupyterlab-favorites==3.2.*' \
     'lckr_jupyterlab_variableinspector==3.2.*' \
     && \
-    # mamba clean --all -f -y && \    
+    mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
 
-# themes
+# Themes
 RUN pip install --quiet --no-cache-dir \
     'jupyterlab_theme_solarized_dark' \
     'jupyterlab-night' \
@@ -472,10 +415,11 @@ RUN pip install --quiet --no-cache-dir \
 
 COPY dive_ai-0.0.1-py3-none-any.whl /tmp/dive_ai-0.0.1-py3-none-any.whl
 
+# Local ai
 RUN \
     pip install --quiet --no-cache-dir \
     'dive_ai-0.0.1-py3-none-any.whl' && \
-    # mamba clean --all -f -y && \
+    mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
 # Copy local files as late as possible to avoid cache busting
@@ -499,26 +443,12 @@ RUN for ext in \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.15.2 \
-    GitHub.copilot@1.194.0 \
+    DanielSanMedium.dscodegpt@3.3.39 \
+    GitHub.copilot-chat@0.16.1 \
+    GitHub.copilot@1.200.0 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done
-
-# ----------------------------------------------------------
-# Cleanup
-
-USER root
-
-RUN apt-get clean && rm -rf /var/lib/apt/lists/*
-
-USER ${NB_UID}
-
-RUN npm cache clean --force && \
-    jupyter lab clean && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}" && \
-    fix-permissions "/home/${NB_USER}"
 
 # ----------------------------------------------------------
 
@@ -537,11 +467,28 @@ ENTRYPOINT ["tini", "-g", "--"]
 # Configure container startup
 CMD ["start-notebook.sh"]
 
+# ### Tensorflow
+# # minor issues: 
+# # https://stackoverflow.com/questions/44232898/memoryerror-in-tensorflow-and-successful-numa-node-read-from-sysfs-had-negativ
+# # tested with:
+# # https://docs.vmware.com/en/VMware-vSphere-Bitfusion/4.0/Example-Guide/GUID-8F6BF9A8-DC1A-4ACD-A2FF-C9CD0B50A9DC.html
+# RUN pip install --quiet \
+#     # --no-cache-dir \
+#     'tensorflow==2.15.*' \
+#     'tensorflowjs==4.15.*' \
+#     # downgraded protobuf
+#     # 'tensorflow-datasets==4.9.*' \
+#     'tensorflow-addons==0.23.*' \
+#     && \
+#     fix-permissions "${CONDA_DIR}"
+# ENV TF_CPP_MIN_LOG_LEVEL=2
+# ENV XLA_FLAGS=--xla_gpu_cuda_data_dir=${CONDA_DIR}/lib
+# ENV LD_LIBRARY_PATH="/opt/conda/lib/:${CONDA_DIR}/lib/python3.11/site-packages/nvidia/cudnn/lib/"
 
-# customize xpra https://xpra.org/manual.html
-# COPY --chown=${NB_USER}:${NB_GID} jupyter_xprahtml5_proxy_init.py /tmp/
-# RUN mv /tmp/jupyter_xprahtml5_proxy_init.py "$(pip show jupyter-xprahtml5-proxy | grep Location | awk '{print $2}')/jupyter_xprahtml5_proxy/__init__.py"
+# # https://github.com/tensorflow/tensorboard/pull/3674
+# ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
 
+# NbGrader
 ENV NBGRADER_UID=2000 \
     NBGRADER_USER=nbgrader \
     COURSE_ID=cs1302_24a
@@ -549,8 +496,6 @@ ENV NBGRADER_UID=2000 \
 # Create NBGRADER_USER with name nbgrader, UID=2000 and in the 'users' group
 # On jupyterhub, this user should be the owner of the course root and exchange folder for nbgrader.
 RUN useradd -l -M -s /bin/bash -N -u "${NBGRADER_UID}" "${NBGRADER_USER}"
-
-
 
 # Switch back to jovyan to avoid accidental container runs as root
 USER ${NB_UID}
@@ -569,12 +514,7 @@ COPY --chown=${NB_USER}:${NB_GID} nbgrader_config.py ${CONDA_DIR}/etc/jupyter/nb
 # See https://jupyterlab.readthedocs.io/en/stable/user/announcements.html
 RUN jupyter labextension disable "@jupyterlab/apputils-extension:announcements"
 
-
-
 WORKDIR "${HOME}"
-
-ENV JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64"
-
 
 # ----------------------------------------------------------
 
