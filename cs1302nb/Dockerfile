@@ -372,7 +372,10 @@ RUN pip install --quiet --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cu121 && \
     pip install --quiet --no-cache-dir \
     'transformers' \
-    'torchtune'
+    'torchtune' \
+    'accelerate' \
+    'evaluate' \
+    'scikit-learn'
 
 # Other AI tools
 RUN pip install --quiet --no-cache-dir \

@@ -16,7 +16,7 @@ registry = localhost:32000
 
 # Docker image information
 jhub := jhub^4.0.0a
-cs1302nb := cs1302nb^0.1.3h
+cs1302nb := cs1302nb^0.1.3i
 # cs1302nb_alpine := cs1302nb^0.1.3c^^alpine
 cs5483nb := cs5483nb^0.1.6a
 cs5483nb_collab := $(cs5483nb)^collab
