@@ -364,29 +364,60 @@ RUN curl -fsSL https://ollama.com/install.sh | sh
 
 USER ${NB_USER}
 
-# PyTorch
-RUN pip install --quiet --no-cache-dir \
-    'torch' \
-    'torchvision' \
-    'torchaudio' \
-    --index-url https://download.pytorch.org/whl/cu121 && \
+# PyTorch & tensorflow
+RUN mamba install --quiet --yes \
+    'pytorch=2.3.*' \
+    'torchvision=0.18.*' \
+    'torchaudio=2.3.*' \
+    'pytorch-cuda=12.1' \
+    -c pytorch -c nvidia \
+    && \
     pip install --quiet --no-cache-dir \
-    'transformers' \
-    'torchtune' \
-    'accelerate' \
-    'evaluate' \
-    'scikit-learn'
+    'tensorflow==2.16.*' \
+    'tensorflow-datasets==4.9.*' \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
 
 # Other AI tools
 RUN pip install --quiet --no-cache-dir \
     'jupyter_ai' \
     'openai' \
     'ollama' \
-    # needed for nbgrader 
-    'tornado==6.4.*' \
     && \
     fix-permissions "${CONDA_DIR}"
 
+RUN pip install --quiet --no-cache-dir \
+    'transformers' \
+    'torchtune' \
+    'accelerate' \
+    'evaluate' \
+    'scikit-learn' \
+    && \
+    fix-permissions "${CONDA_DIR}"
+
+RUN mamba install --quiet --yes \
+    altair \
+    bokeh \
+    bottleneck \
+    blas \
+    cython \
+    h5py \
+    numba \
+    patsy \
+    pytables \
+    seaborn \
+    sqlalchemy \
+    statsmodels \
+    xlrd \
+    && \
+    pip install --quiet --no-cache-dir \
+    'nvitop' \
+    'gpustat' \
+    'jdc' \
+    'jupyterlab-tensorboard-pro' && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
 
 # Other UI enhancements
 RUN \
@@ -423,6 +454,12 @@ RUN \
     pip install --quiet --no-cache-dir \
     'dive_ai-0.0.1-py3-none-any.whl' && \
     mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+# needed for nbgrader
+RUN pip install --quiet --no-cache-dir \
+    'tornado==6.4.*' \
+    && \
     fix-permissions "${CONDA_DIR}"
 
 # Copy local files as late as possible to avoid cache busting
@@ -475,21 +512,13 @@ CMD ["start-notebook.sh"]
 # # https://stackoverflow.com/questions/44232898/memoryerror-in-tensorflow-and-successful-numa-node-read-from-sysfs-had-negativ
 # # tested with:
 # # https://docs.vmware.com/en/VMware-vSphere-Bitfusion/4.0/Example-Guide/GUID-8F6BF9A8-DC1A-4ACD-A2FF-C9CD0B50A9DC.html
-# RUN pip install --quiet \
-#     # --no-cache-dir \
-#     'tensorflow==2.15.*' \
-#     'tensorflowjs==4.15.*' \
-#     # downgraded protobuf
-#     # 'tensorflow-datasets==4.9.*' \
-#     'tensorflow-addons==0.23.*' \
-#     && \
-#     fix-permissions "${CONDA_DIR}"
-# ENV TF_CPP_MIN_LOG_LEVEL=2
-# ENV XLA_FLAGS=--xla_gpu_cuda_data_dir=${CONDA_DIR}/lib
-# ENV LD_LIBRARY_PATH="/opt/conda/lib/:${CONDA_DIR}/lib/python3.11/site-packages/nvidia/cudnn/lib/"
 
-# # https://github.com/tensorflow/tensorboard/pull/3674
-# ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
+ENV TF_CPP_MIN_LOG_LEVEL=2
+ENV XLA_FLAGS=--xla_gpu_cuda_data_dir=${CONDA_DIR}/lib
+ENV LD_LIBRARY_PATH="/opt/conda/lib/:${CONDA_DIR}/lib/python3.12/site-packages/nvidia/cudnn/lib/"
+
+# https://github.com/tensorflow/tensorboard/pull/3674
+ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
 
 # NbGrader
 ENV NBGRADER_UID=2000 \
