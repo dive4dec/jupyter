@@ -17,7 +17,7 @@ registry = localhost:32000
 # Docker image information
 jhub := jhub^4.0.0a
 deephub := deephub^4.0.0a
-deepnb := deepnb^0.1.4c
+deepnb := deepnb^0.1.4e
 cs1302nb := cs1302nb^0.1.4a
 # cs1302nb_alpine := cs1302nb^0.1.3c^^alpine
 cs5483nb := cs5483nb^0.1.6a

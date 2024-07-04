@@ -81,7 +81,7 @@ RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
 USER ${NB_UID}
 
 # Pin python version here, or set it to "default"
-ARG PYTHON_VERSION=3.12
+ARG PYTHON_VERSION=3.11
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -364,24 +364,30 @@ RUN curl -fsSL https://ollama.com/install.sh | sh
 
 USER ${NB_USER}
 
-# PyTorch & tensorflow
+# Tensorflow
 RUN mamba install --quiet --yes \
-    'pytorch=2.3.*' \
-    'torchvision=0.18.*' \
-    'torchaudio=2.3.*' \
-    'pytorch-cuda=12.1' \
-    'cuda-nvcc' \
-    -c pytorch -c nvidia/label/cuda-12.1.0 \
+    'cuda-nvcc' -c nvidia/label/cuda-12.1.0 \
     && \
-    pip install --quiet --no-cache-dir \
-    'tensorflow==2.16.*' \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+RUN pip install --quiet --no-cache-dir \
+    'tensorflow==2.15.*' \
     'tensorflow-datasets==4.9.*' \
-    'flex==6.14.*' \
+    'flax==0.8.*' \
     'tensorflow-hub==0.16.*' \
+    'tensorflow-decision-forests==1.8.*' \
     && \
     pip install --quiet --no-cache-dir --no-deps \
-    'tensorflowjs==4.20.*' && \
-    mamba clean --all -f -y && \
+    'tensorflowjs==4.20.*' \
+    && \
+    fix-permissions "${CONDA_DIR}"
+
+RUN pip install --quiet --no-cache-dir \
+    'torch==2.3.*' \
+    'torchvision==0.18.*' \
+    'torchaudio==2.3.*' \
+    && \
     fix-permissions "${CONDA_DIR}"
 
 # Other AI tools
@@ -389,6 +395,8 @@ RUN pip install --quiet --no-cache-dir \
     'jupyter_ai' \
     'openai' \
     'ollama' \
+    'chromadb' \
+    'tiktoken' \
     && \
     fix-permissions "${CONDA_DIR}"
 
@@ -401,26 +409,29 @@ RUN pip install --quiet --no-cache-dir \
     && \
     fix-permissions "${CONDA_DIR}"
 
-RUN mamba install --quiet --yes \
-    altair \
-    bokeh \
-    bottleneck \
-    blas \
-    cython \
-    h5py \
-    numba \
-    patsy \
-    pytables \
-    seaborn \
-    sqlalchemy \
-    statsmodels \
-    xlrd \
-    && \
-    pip install --quiet --no-cache-dir \
+RUN pip install --quiet --no-cache-dir \
+    'statsmodels' \
+    'numba' \
+    'cython' \
+    'h5py' \
+    'bottleneck' \
     'nvitop' \
     'gpustat' \
     'jdc' \
-    'jupyterlab-tensorboard-pro' && \
+    'jupyterlab-tensorboard-pro' \
+    && \
+    fix-permissions "${CONDA_DIR}"
+
+RUN mamba install --quiet --yes \
+    altair \
+    bokeh \
+    patsy \
+    seaborn \
+    sqlalchemy \
+    xlrd \
+    # pytables \
+    # blas \
+    && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
@@ -520,7 +531,7 @@ CMD ["start-notebook.sh"]
 
 ENV TF_CPP_MIN_LOG_LEVEL=2
 ENV XLA_FLAGS=--xla_gpu_cuda_data_dir=${CONDA_DIR}
-ENV LD_LIBRARY_PATH="${CONDA_DIR}/lib/:${CONDA_DIR}/lib/python3.12/site-packages/nvidia/cudnn/lib/"
+ENV LD_LIBRARY_PATH="${CONDA_DIR}/lib/:${CONDA_DIR}/lib/python3.11/site-packages/nvidia/cudnn/lib/"
 
 # https://github.com/tensorflow/tensorboard/pull/3674
 ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
@@ -546,6 +557,9 @@ RUN jupyter server extension disable --sys-prefix nbgrader.server_extensions.for
     jupyter labextension disable nbgrader:create-assignment
 
 COPY --chown=${NB_USER}:${NB_GID} nbgrader_config.py ${CONDA_DIR}/etc/jupyter/nbgrader_config.py
+
+# Shared ollama models folder
+ENV OLLAMA_MODELS=/models/ollama
 
 # Disable news and update
 # See https://jupyterlab.readthedocs.io/en/stable/user/announcements.html

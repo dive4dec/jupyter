@@ -376,7 +376,7 @@ RUN mamba install --quiet --yes \
     pip install --quiet --no-cache-dir \
     'tensorflow==2.16.*' \
     'tensorflow-datasets==4.9.*' \
-    'flex==6.14.*' \
+    'flax==0.8.*' \
     'tensorflow-hub==0.16.*' \
     && \
     pip install --quiet --no-cache-dir --no-deps \
@@ -519,7 +519,7 @@ CMD ["start-notebook.sh"]
 # # https://docs.vmware.com/en/VMware-vSphere-Bitfusion/4.0/Example-Guide/GUID-8F6BF9A8-DC1A-4ACD-A2FF-C9CD0B50A9DC.html
 
 ENV TF_CPP_MIN_LOG_LEVEL=2
-ENV XLA_FLAGS=--xla_gpu_cuda_data_dir=${CONDA_DIR}/lib
+ENV XLA_FLAGS=--xla_gpu_cuda_data_dir=${CONDA_DIR}
 ENV LD_LIBRARY_PATH="${CONDA_DIR}/lib/:${CONDA_DIR}/lib/python3.12/site-packages/nvidia/cudnn/lib/"
 
 # https://github.com/tensorflow/tensorboard/pull/3674
