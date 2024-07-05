@@ -18,7 +18,7 @@ registry = localhost:32000
 jhub := jhub^4.0.0a
 deephub := deephub^4.0.0a
 deepnb := deepnb^0.1.4e
-cs1302nb := cs1302nb^0.1.4a
+cs1302nb := cs1302nb^0.1.4b
 # cs1302nb_alpine := cs1302nb^0.1.3c^^alpine
 cs5483nb := cs5483nb^0.1.6a
 cs5483nb_collab := $(cs5483nb)^collab
@@ -127,9 +127,9 @@ docker-run.%: parse-image-info.%; #@ $(info $(docker-run)) :
 	$(docker-run)
 
 define docker-run
-@docker run -it -p 8888:8888/tcp \
+@docker run --gpus all -it -p 8888:8888/tcp \
 	-v $(PWD):/home/jovyan/work \
-	"$(IMAGE_NAME):$(IMAGE_TAG)" start-notebook.sh --NotebookApp.token='' --Application.log_level=0
+	"$(IMAGE_NAME):$(IMAGE_TAG)" start-notebook.sh --IdentityProvider.token='' --Application.log_level=0
 endef
 
 

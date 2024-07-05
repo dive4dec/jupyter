@@ -1,6 +1,6 @@
 ARG ROOT_CONTAINER=ubuntu:24.04
 
-FROM $ROOT_CONTAINER as foundation
+FROM $ROOT_CONTAINER AS foundation
 
 # Fix the UID conflict with user ubuntu when jovyan needs to be created later. 
 # See https://bugs.launchpad.net/cloud-images/+bug/2005129
@@ -10,7 +10,7 @@ RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Avoid prompt for user input for installation of dependencies
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
 ARG NB_USER="jovyan"
 ARG NB_UID="1000"
@@ -31,7 +31,7 @@ ENV PATH="${CONDA_DIR}/bin:${PATH}" \
 
     
 USER root
-FROM foundation as base
+FROM foundation AS base
 
 RUN apt-get update --yes && \
     # Patch newly discovered vulnerabilities in apt-get packages
@@ -169,7 +169,7 @@ USER ${NB_UID}
 
 RUN mamba install --yes \
     # code-server requirement
-    'nodejs==20.12.*' \
+    'nodejs==22.4.*' \
     'notebook==7.2.*' \
     'jupyterlab==4.2.*' \
     'jupyterhub==5.0.*' \
@@ -178,7 +178,6 @@ RUN mamba install --yes \
     mamba clean --all -f -y && \
     npm cache clean --force && \
     jupyter lab clean && \
-    rm -rf "/home/${NB_USER}/.cache/yarn" && \
     fix-permissions "${CONDA_DIR}" && \
     fix-permissions "/home/${NB_USER}"
 
@@ -196,8 +195,8 @@ RUN apt-get update --yes && \
     curl \
     && \
     wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.90.0 && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
+    sh /tmp/install.sh --version 4.90.3 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -212,6 +211,7 @@ RUN mamba install --quiet --yes \
     'nbgitpuller=1.2.*' \
     'black=24.4.*' \
     'jupyterlab_code_formatter=2.2.*' \
+    'jupyterlab-lsp=5.1.*' \
     'python-lsp-server=1.11.*' \
     'jupyter-resource-usage==1.0.*' \
     && \
@@ -220,6 +220,20 @@ RUN mamba install --quiet --yes \
     'jupyterlab_filesystem_access==0.6.*' \
     'jupyter-www-proxy' \
     && \
+    # See https://jupyterlab-lsp.readthedocs.io/en/latest/Language%20Servers.html#example-getting-all-the-node-js-based-language-servers
+    npm install -g --save-dev  \
+    bash-language-server \
+    dockerfile-language-server-nodejs \
+    pyright \
+    sql-language-server \
+    typescript-language-server \
+    unified-language-server \
+    vscode-css-languageserver-bin \
+    vscode-html-languageserver-bin \
+    vscode-json-languageserver-bin \
+    yaml-language-server \
+    && \
+    npm cache clean --force && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
@@ -257,12 +271,13 @@ RUN apt-get update --yes && \
 USER ${NB_USER}
 
 # # Programming languages supports
-RUN npm install -g npm@^10.8.0 && \
+RUN \
     npm install -g \
     # Documentations with MyST
     mystmd \
     # Javascript and Typescript
-    tslab && \
+    tslab \
+    && \
     tslab install --sys-prefix \
     && \
     mamba install --quiet --yes \
@@ -278,11 +293,12 @@ RUN npm install -g npm@^10.8.0 && \
     'jupyterlab-myst==2.4.*' \
     # Documentations
     'itikz==0.1.*' \
+    'jupyterlite-sphinx==0.15.*' \ 
     'nbdev==2.3.*' \
     'jupyterlab-quarto==0.3.*' \
     && \
     # scheme kernel
-    python3 -m calysto_scheme install --sys-prefix && \
+    python -m calysto_scheme install --sys-prefix && \
     # Java kernel
     wget 'https://github.com/SpencerPark/IJava/releases/download/v1.3.0/ijava-1.3.0.zip' \
     -O /tmp/ijava.zip && \
@@ -357,50 +373,6 @@ RUN pip install --quiet --no-cache-dir \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
-# AI
-USER root
-
-RUN curl -fsSL https://ollama.com/install.sh | sh
-
-USER ${NB_USER}
-
-# PyTorch & tensorflow
-RUN mamba install --quiet --yes \
-    'pytorch=2.3.*' \
-    'torchvision=0.18.*' \
-    'torchaudio=2.3.*' \
-    'pytorch-cuda=12.1' \
-    'cuda-nvcc' \
-    -c pytorch -c nvidia/label/cuda-12.1.0 \
-    && \
-    pip install --quiet --no-cache-dir \
-    'tensorflow==2.16.*' \
-    'tensorflow-datasets==4.9.*' \
-    'flax==0.8.*' \
-    'tensorflow-hub==0.16.*' \
-    && \
-    pip install --quiet --no-cache-dir --no-deps \
-    'tensorflowjs==4.20.*' && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
-# Other AI tools
-RUN pip install --quiet --no-cache-dir \
-    'jupyter_ai' \
-    'openai' \
-    'ollama' \
-    && \
-    fix-permissions "${CONDA_DIR}"
-
-RUN pip install --quiet --no-cache-dir \
-    'transformers' \
-    'torchtune' \
-    'accelerate' \
-    'evaluate' \
-    'scikit-learn' \
-    && \
-    fix-permissions "${CONDA_DIR}"
-
 RUN mamba install --quiet --yes \
     altair \
     bokeh \
@@ -412,15 +384,86 @@ RUN mamba install --quiet --yes \
     patsy \
     pytables \
     seaborn \
+    scikit-learn \
     sqlalchemy \
     statsmodels \
     xlrd \
     && \
-    pip install --quiet --no-cache-dir \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+# CUDA
+RUN mamba install --quiet --yes \
+    'cuda' \
+    -c nvidia/label/cuda-12.1.0 \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+ 
+
+# Tensorflow
+RUN pip install --quiet --no-cache-dir \
+    'tensorflow==2.16.*' \
+    'tensorflow-datasets==4.9.*' \
+    && \
+    fix-permissions "${CONDA_DIR}"
+
+# PyTorch
+RUN pip install --quiet --no-cache-dir \
+    'torch==2.3.*' \
+    'torchvision==0.18.*' \
+    'torchaudio==2.3.*' \
+    && \
+    fix-permissions "${CONDA_DIR}"
+
+# Deep learning tools
+RUN pip install --quiet --no-cache-dir \
     'nvitop' \
     'gpustat' \
     'jdc' \
-    'jupyterlab-tensorboard-pro' && \
+    'jupyterlab-tensorboard-pro' \
+    && \
+    fix-permissions "${CONDA_DIR}"
+
+# LLM
+USER root
+
+RUN curl -fsSL https://ollama.com/install.sh | sh
+
+USER ${NB_USER}
+
+RUN pip install --quiet --no-cache-dir --pre -U -f https://mlc.ai/wheels mlc-llm-nightly-cu121 mlc-ai-nightly-cu121 && \
+    pip install --quiet --no-cache-dir \
+    'jupyter_ai' \
+    'openai' \
+    'ollama' \
+    'chromadb' \
+    'tiktoken' \
+    'nvitop' \
+    'gpustat' \
+    'jdc' \
+    'jupyterlab-tensorboard-pro' \
+    && \
+    mamba install --quiet --yes \
+    'git-lfs' \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+RUN pip install --quiet --no-cache-dir \
+    'transformers' \
+    'torchtune' \
+    'accelerate' \
+    'evaluate' \
+    && \
+    fix-permissions "${CONDA_DIR}"
+
+COPY dive_ai-0.0.1-py3-none-any.whl /tmp/dive_ai-0.0.1-py3-none-any.whl
+
+RUN \
+    pip install --quiet --no-cache-dir \
+    'dive_ai-0.0.1-py3-none-any.whl' && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
@@ -432,15 +475,12 @@ RUN \
     pip install --quiet --no-cache-dir \
     'jupyterlab-unfold==0.3.*' \
     'jupyterlab-favorites==3.2.*' \
-    'lckr_jupyterlab_variableinspector==3.2.*' \
     && \
     mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
 
 # Themes
 RUN pip install --quiet --no-cache-dir \
-    'jupyterlab_theme_solarized_dark' \
-    'jupyterlab-night' \
     'jupyterlab_theme_solarized_dark' \
     'theme-darcula' && \
     fix-permissions "${CONDA_DIR}"
@@ -450,15 +490,6 @@ RUN pip install --quiet --no-cache-dir \
     # not compatible with jupyterlab-myst
     # 'jupyterlab_rise==0.42.*' \
     'jupyterlab-deck==0.2.*' && \
-    fix-permissions "${CONDA_DIR}"
-
-COPY dive_ai-0.0.1-py3-none-any.whl /tmp/dive_ai-0.0.1-py3-none-any.whl
-
-# Local ai
-RUN \
-    pip install --quiet --no-cache-dir \
-    'dive_ai-0.0.1-py3-none-any.whl' && \
-    mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
 # needed for nbgrader
@@ -497,7 +528,7 @@ RUN for ext in \
 
 # ----------------------------------------------------------
 
-FROM foundation as prod
+FROM foundation AS prod
 
 COPY --from=base /etc/ /etc/
 COPY --from=base /usr/ /usr/
@@ -546,6 +577,11 @@ RUN jupyter server extension disable --sys-prefix nbgrader.server_extensions.for
     jupyter labextension disable nbgrader:create-assignment
 
 COPY --chown=${NB_USER}:${NB_GID} nbgrader_config.py ${CONDA_DIR}/etc/jupyter/nbgrader_config.py
+# Shared ollama models folder
+ENV OLLAMA_MODELS=/models/ollama
+# Shared mlc models folder
+# See https://llm.mlc.ai/docs/compilation/package_libraries_and_weights.html#introduction
+ENV MLC_LLM_SOURCE_DIR=/models/mlc-llm
 
 # Disable news and update
 # See https://jupyterlab.readthedocs.io/en/stable/user/announcements.html
@@ -555,7 +591,7 @@ WORKDIR "${HOME}"
 
 # ----------------------------------------------------------
 
-FROM prod as collab
+FROM prod AS collab
 
 USER ${NB_USER}
 
@@ -566,6 +602,6 @@ RUN mamba install --quiet --yes \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
-FROM prod as default
+FROM prod AS default
 
 USER ${NB_USER}
