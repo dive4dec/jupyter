@@ -25,7 +25,7 @@ ENV CONDA_DIR=/opt/conda \
     LC_ALL=en_US.UTF-8 \
     LANG=en_US.UTF-8 \
     LANGUAGE=en_US.UTF-8 \
-    TZ=Hongkong
+    TZ=Asia/Hong_Kong
 ENV PATH="${CONDA_DIR}/bin:${PATH}" \
     HOME="/home/${NB_USER}"
 
@@ -435,7 +435,7 @@ USER ${NB_USER}
 
 RUN pip install --quiet --no-cache-dir --pre -U -f https://mlc.ai/wheels mlc-llm-nightly-cu121 mlc-ai-nightly-cu121 && \
     pip install --quiet --no-cache-dir \
-    'jupyter_ai' \
+    'jupyter_ai[all]' \
     'openai' \
     'ollama' \
     'chromadb' \
@@ -459,14 +459,6 @@ RUN pip install --quiet --no-cache-dir \
     && \
     fix-permissions "${CONDA_DIR}"
 
-COPY dive_ai-0.0.1-py3-none-any.whl /tmp/dive_ai-0.0.1-py3-none-any.whl
-
-RUN \
-    pip install --quiet --no-cache-dir \
-    'dive_ai-0.0.1-py3-none-any.whl' && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
 # Other UI enhancements
 RUN \
     mamba install --quiet --yes \
@@ -475,6 +467,7 @@ RUN \
     pip install --quiet --no-cache-dir \
     'jupyterlab-unfold==0.3.*' \
     'jupyterlab-favorites==3.2.*' \
+    'jupyterlab-scenes==2.0.*' \
     && \
     mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
@@ -577,15 +570,20 @@ RUN jupyter server extension disable --sys-prefix nbgrader.server_extensions.for
     jupyter labextension disable nbgrader:create-assignment
 
 COPY --chown=${NB_USER}:${NB_GID} nbgrader_config.py ${CONDA_DIR}/etc/jupyter/nbgrader_config.py
-# Shared ollama models folder
-ENV OLLAMA_MODELS=/models/ollama
-# Shared mlc models folder
-# See https://llm.mlc.ai/docs/compilation/package_libraries_and_weights.html#introduction
-ENV MLC_LLM_SOURCE_DIR=/models/mlc-llm
+
+COPY --chown="${NB_UID}:${NB_GID}" initial-condarc "${CONDA_DIR}/.condarc"
+COPY --chown="${NB_UID}:${NB_GID}" kernel.json "${CONDA_DIR}/share/jupyter/kernels/python3/kernel.json"
 
 # Disable news and update
 # See https://jupyterlab.readthedocs.io/en/stable/user/announcements.html
 RUN jupyter labextension disable "@jupyterlab/apputils-extension:announcements"
+
+USER ${NB_UID}
+
+RUN \
+    pip install --quiet --no-cache-dir \
+    'git+https://github.com/dive4dec/dive_ai@39d2994e4f272f00789a8b4f8de9146599f055dd#subdirectory=dive_ai' && \
+    fix-permissions "${CONDA_DIR}"
 
 WORKDIR "${HOME}"
 
