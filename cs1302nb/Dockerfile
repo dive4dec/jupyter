@@ -575,7 +575,7 @@ USER ${NB_UID}
 
 RUN \
     pip install --quiet --no-cache-dir \
-    'git+https://github.com/dive4dec/dive_ai@39d2994e4f272f00789a8b4f8de9146599f055dd#subdirectory=dive_ai' && \
+    'git+https://github.com/dive4dec/dive_ai@854fc8408ca46b026fa6365165c31673ea40ceef#subdirectory=dive_ai' && \
     fix-permissions "${CONDA_DIR}"
 
 WORKDIR "${HOME}"
