@@ -18,13 +18,13 @@ registry = localhost:32000
 jhub := jhub^4.0.0a
 deephub := deephub^4.0.0a
 deepnb := deepnb^0.1.4e
-cs1302nb := cs1302nb^0.1.5a
+cs1302nb := cs1302nb^0.1.5c
 # cs1302nb_alpine := cs1302nb^0.1.3c^^alpine
 cs5483nb := cs5483nb^0.1.6a
 cs5483nb_collab := $(cs5483nb)^collab
 cs1302nb_collab := $(cs1302nb)^collab
 deepnb_collab := $(deepnb)^collab
-vllm := vllm^0.1.0
+vllm := vllm^0.1.1a
 
 deep: image.deephub image.deepnb image.deepnb_collab hub.deep
 
@@ -130,6 +130,7 @@ docker-run.%: parse-image-info.%; #@ $(info $(docker-run)) :
 define docker-run
 @docker run --gpus all -it -p 8888:8888/tcp \
 	-v $(PWD):/home/jovyan/work \
+	-v /models:/models \
 	"$(IMAGE_NAME):$(IMAGE_TAG)" start-notebook.sh --IdentityProvider.token='' --Application.log_level=0 \
 	--AiExtension.default_embeddings_model=diveai:mxbai-embed-large
 endef

@@ -16,18 +16,20 @@ ARG NB_USER="jovyan"
 ARG NB_UID="1000"
 ARG NB_GID="100"
 
+# Configure environment
 ENV CONDA_DIR=/opt/conda \
     SHELL=/bin/bash \
     NB_USER="${NB_USER}" \
     NB_UID=${NB_UID} \
     NB_GID=${NB_GID} \
-    LC_ALL=C.UTF-8 \
-    LANG=C.UTF-8 \
-    LANGUAGE=C.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    LANG=en_US.UTF-8 \
+    LANGUAGE=en_US.UTF-8 \
     TZ=Asia/Hong_Kong
 ENV PATH="${CONDA_DIR}/bin:${PATH}" \
     HOME="/home/${NB_USER}"
 
+    
 USER root
 FROM foundation AS base
 
@@ -50,7 +52,6 @@ RUN apt-get update --yes && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
-    echo "C.UTF-8 UTF-8" >> /etc/locale.gen && \
     locale-gen && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
@@ -63,9 +64,7 @@ RUN chmod a+rx /usr/local/bin/fix-permissions
 # hadolint ignore=SC2016
 RUN sed -i 's/^#force_color_prompt=yes/force_color_prompt=yes/' /etc/skel/.bashrc && \
    # Add call to conda init script see https://stackoverflow.com/a/58081608/4413446
-   echo 'eval "$(conda shell.bash hook)"' >> /etc/skel/.bashrc && \
-   # fix https://github.com/jupyter/docker-stacks/issues/815
-   cat /etc/skel/.bashrc >> /etc/bash.bashrc
+   echo 'eval "$(command conda shell.bash hook 2> /dev/null)"' >> /etc/skel/.bashrc
 
 # Create NB_USER with name jovyan user with UID=1000 and in the 'users' group
 # and make sure these dirs are writable by the `users` group.
@@ -82,7 +81,7 @@ RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
 USER ${NB_UID}
 
 # Pin python version here, or set it to "default"
-ARG PYTHON_VERSION=3.11
+ARG PYTHON_VERSION=3.12
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -187,9 +186,17 @@ USER root
 ENV JUPYTER_PORT=8888
 EXPOSE $JUPYTER_PORT
 
+# fix https://github.com/jupyter/docker-stacks/issues/815
+RUN cat /etc/skel/.bashrc >> /etc/bash.bashrc
+
 ### code-server ###
-RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.91.0 && \
+RUN apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    curl \
+    && \
+    wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
+    sh /tmp/install.sh --version 4.90.3 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -238,14 +245,20 @@ RUN \
     apt-get install --yes --no-install-recommends \
     # C, C++
     build-essential \
+    unzip \
     gdb \
     fpc-source \
     # SQL
     sqlite3 \
-    # JAVA
-    default-jdk default-jre \
+    pdf2svg \
     && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# JAVA
+RUN \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    default-jdk default-jre
 
 # MIT Scheme
 COPY mit-scheme/ /tmp/mit-scheme/
@@ -382,6 +395,7 @@ RUN mamba install --quiet --yes \
 # CUDA
 RUN mamba install --quiet --yes \
     'cuda' \
+    -c nvidia/label/cuda-12.1.0 \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
@@ -390,14 +404,8 @@ RUN mamba install --quiet --yes \
 
 # Tensorflow
 RUN pip install --quiet --no-cache-dir \
-    'tensorflow==2.15.*' \
+    'tensorflow==2.16.*' \
     'tensorflow-datasets==4.9.*' \
-    'flax==0.8.*' \
-    'tensorflow-hub==0.16.*' \
-    'tensorflow-decision-forests==1.8.*' \
-    && \
-    pip install --quiet --no-cache-dir --no-deps \
-    'tensorflowjs==4.20.*' \
     && \
     fix-permissions "${CONDA_DIR}"
 
@@ -430,7 +438,6 @@ RUN pip install --quiet --no-cache-dir --pre -U -f https://mlc.ai/wheels mlc-llm
     'jupyter_ai[all]' \
     'openai' \
     'ollama' \
-    'vllm' \
     'chromadb' \
     'tiktoken' \
     'nvitop' \
@@ -505,9 +512,9 @@ RUN for ext in \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.17.1 \
-    GitHub.copilot@1.213.0 \
-    Continue.continue@0.8.43 \
+    DanielSanMedium.dscodegpt@3.3.39 \
+    GitHub.copilot-chat@0.16.1 \
+    GitHub.copilot@1.200.0 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done

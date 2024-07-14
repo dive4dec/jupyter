@@ -4,5 +4,7 @@ auto_update_conda: false
 show_channel_urls: true
 channels:
   - conda-forge
+  - nvidia/label/cuda-12.1.0
+  - defaults
 envs_dirs:
-  - ~/my-conda-envs/
+  - ~/.conda/envs

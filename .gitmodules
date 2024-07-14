@@ -1,3 +1,0 @@
-[submodule "deploy"]
-	path = deploy
-	url = git@github.com:dive4dec/jupyter-deploy.git
