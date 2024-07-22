@@ -171,8 +171,8 @@ USER ${NB_UID}
 RUN mamba install --yes \
     # code-server requirement
     'nodejs==22.4.*' \
-    'notebook==7.2.*' \
     'jupyterlab==4.2.*' \
+    'notebook==7.2.*' \
     'jupyterhub==5.0.*' \
     && \
     jupyter notebook --generate-config && \
@@ -189,7 +189,7 @@ EXPOSE $JUPYTER_PORT
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.91.0 && \
+    sh /tmp/install.sh --version 4.91.1 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -511,6 +511,14 @@ RUN for ext in \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done
+
+# Other UI enhancements
+RUN \
+    mamba install --quiet --yes \
+    'gh' \
+    && \
+    mamba clean --all -f -y && \    
+    fix-permissions "${CONDA_DIR}"
 
 # ----------------------------------------------------------
 
