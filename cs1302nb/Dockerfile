@@ -170,7 +170,7 @@ USER ${NB_UID}
 
 RUN mamba install --yes \
     # code-server requirement
-    'nodejs==22.4.*' \
+    'nodejs==22.6.*' \
     'jupyterlab==4.2.*' \
     'notebook==7.2.*' \
     'jupyterhub==5.0.*' \
@@ -257,30 +257,28 @@ RUN apt-get update --yes && \
 
 USER ${NB_USER}
 
-# # Programming languages supports
+# Documentations with MyST
 RUN \
     npm install -g \
-    # Documentations with MyST
     mystmd \
-    # Javascript and Typescript
-    tslab \
     && \
-    tslab install --sys-prefix \
-    && \
+    npm cache clean --force
+
+# Programming languages support
+RUN \
     mamba install --quiet --yes \
     # C, C++
     'xeus-cling=0.15.*' \
     # Java
     'openjdk=22.0.*' \
     # Documentations
-    'jupyterlite=0.3.*' \
+    'jupyterlite=0.4.*' \
     && \
     pip install --quiet --no-cache-dir \
     'calysto-scheme==1.4.*' \
     'jupyterlab-myst==2.4.*' \
     # Documentations
-    'itikz==0.1.*' \
-    'jupyterlite-sphinx==0.15.*' \ 
+    'jupyterlite-sphinx==0.16.*' \ 
     'nbdev==2.3.*' \
     'jupyterlab-quarto==0.3.*' \
     && \
@@ -427,7 +425,7 @@ USER ${NB_USER}
 
 RUN pip install --quiet --no-cache-dir --pre -U -f https://mlc.ai/wheels mlc-llm-nightly-cu121 mlc-ai-nightly-cu121 && \
     pip install --quiet --no-cache-dir \
-    'jupyter_ai[all]' \
+    'jupyter_ai[all]==2.20.*' \
     'openai' \
     'ollama' \
     'vllm' \
