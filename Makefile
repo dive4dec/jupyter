@@ -1,24 +1,49 @@
-SHELL=/bin/bash
+		SHELL=/bin/bash
 
 # Docker registry
-registry = localhost:32000
+registry ?= localhost:32000
 
 # Docker image information
-jhub := jhub^4.0.0a
+jhub := jhub^4.0.0b
 deephub := deephub^4.0.0a
 deepnb := deepnb^0.1.4e
-cs1302nb := cs1302nb^0.1.7
+cs1302nb := cs1302nb^0.1.7d
 cs5483nb := cs5483nb^0.1.6a
 cs5483nb_collab := $(cs5483nb)^collab
 cs1302nb_collab := $(cs1302nb)^collab
+cs1302nb_core := $(cs1302nb)^^core
 deepnb_collab := $(deepnb)^collab
 vllm := vllm^0.1.1a
 
+test.%: 
+	$(MAKE) parse-image-info.$($*) resgistry=chungc IMAGE_TAG=latest
 
 # Prepare a docker image
 image.%:
 	@ make docker-build.$($*) && \
 	make docker-push.$($*)
+
+# Publish a docker image
+publish-image.%:
+	@ $(MAKE) docker-multiarch.$($*) registry=chungc
+
+publish-image-as-latest.%:
+	@ $(MAKE) docker-multiarch.$($*) registry=chungc IMAGE_TAG=latest
+
+docker-multiarch.%: parse-image-info.%
+	$(docker-multiarch)
+
+define docker-multiarch
+@echo "Building multiarch docker image..." && \
+cd $(IMAGE_NAME) && docker buildx build . \
+--builder=container \
+--platform linux/amd64,linux/arm64 \
+$(if $(DOCKERFILE_SUFFIX),-f Dockerfile.$(DOCKERFILE_SUFFIX)) \
+$(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
+-t "$(registry)/$(IMAGE_NAME):$(IMAGE_TAG)" \
+--push
+endef
+
 
 # Test a docker image
 test-image.%:
@@ -65,12 +90,12 @@ parse-image-info.%:
 	@:
 
 define parse-image-info
-$(eval _tokenized := $(subst ^, ^,$*))
-$(eval IMAGE_NAME := $(word 1,$(_tokenized)))
-$(eval IMAGE_VERSION := $(subst ^,,$(word 2,$(_tokenized))))
-$(eval BUILD_TARGET := $(subst ^,,$(word 3,$(_tokenized))))
-$(eval DOCKERFILE_SUFFIX := $(subst ^,,$(word 4,$(_tokenized))))
-$(eval IMAGE_TAG := $(if $(IMAGE_VERSION),$(IMAGE_VERSION)$(if $(BUILD_TARGET),-$(BUILD_TARGET))$(if $(DOCKERFILE_SUFFIX),.$(DOCKERFILE_SUFFIX)),latest))
+$(eval _tokenized ?= $(subst ^, ^,$*))
+$(eval IMAGE_NAME ?= $(word 1,$(_tokenized)))
+$(eval IMAGE_VERSION ?= $(subst ^,,$(word 2,$(_tokenized))))
+$(eval BUILD_TARGET ?= $(subst ^,,$(word 3,$(_tokenized))))
+$(eval DOCKERFILE_SUFFIX ?= $(subst ^,,$(word 4,$(_tokenized))))
+$(eval IMAGE_TAG ?= $(if $(IMAGE_VERSION),$(IMAGE_VERSION)$(if $(BUILD_TARGET),-$(BUILD_TARGET))$(if $(DOCKERFILE_SUFFIX),.$(DOCKERFILE_SUFFIX)),latest))
 endef
 
 define image-info

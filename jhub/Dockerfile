@@ -21,4 +21,5 @@ COPY etc/pam.d /etc/pam.d
 
 USER jovyan
 
-RUN pip install jupyterhub-ltiauthenticator --no-cache-dir --quiet
+RUN pip install --no-cache-dir --quiet \
+    jupyterhub-ltiauthenticator
