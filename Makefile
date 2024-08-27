@@ -127,11 +127,10 @@ docker-run.%: parse-image-info.%; #@ $(info $(docker-run)) :
 	$(docker-run)
 
 define docker-run
-@docker run --gpus all -it -p 8888:8888/tcp \
+@ docker run --gpus all -it -p 8888:8888/tcp \
 	-v $(PWD):/home/jovyan/work \
 	-v /models:/models \
-	"$(IMAGE_NAME):$(IMAGE_TAG)" start-notebook.sh --IdentityProvider.token='' --Application.log_level=0 \
-	--AiExtension.default_embeddings_model=diveai:mxbai-embed-large
+	"$(IMAGE_NAME):$(IMAGE_TAG)" start-notebook.sh --IdentityProvider.token='' --Application.log_level=0
 endef
 
 # Push a docker image to a registry
