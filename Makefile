@@ -20,8 +20,8 @@ test.%:
 
 # Prepare a docker image
 image.%:
-	@ make docker-build.$($*) && \
-	make docker-push.$($*)
+	@ $(MAKE) docker-build.$($*) && \
+	$(MAKE) docker-push.$($*)
 
 # Publish a docker image
 publish-image.%:
@@ -47,7 +47,7 @@ endef
 
 # Test a docker image
 test-image.%:
-	make docker-run.$($*)
+	$(MAKE) docker-run.$($*)
 
 # Parse docker image information
 # The make command 
