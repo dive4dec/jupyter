@@ -582,7 +582,7 @@ USER ${NB_UID}
 
 RUN \
     pip install --quiet --no-cache-dir \
-    'git+https://github.com/dive4dec/dive_ai@6e31a7665459df721942aaca3ef5abbdb8d8b218#subdirectory=dive_ai' && \
+    'git+https://github.com/dive4dec/dive_ai@2523f7cae14e9cf66f0faada22cd5e8e3b3a4f02#subdirectory=dive_ai' && \
     fix-permissions "${CONDA_DIR}"
 
 RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
