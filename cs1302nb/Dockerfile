@@ -59,14 +59,6 @@ RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
 COPY fix-permissions /usr/local/bin/fix-permissions
 RUN chmod a+rx /usr/local/bin/fix-permissions
 
-# Enable prompt color in the skeleton .bashrc before creating the default NB_USER
-# hadolint ignore=SC2016
-RUN sed -i 's/^#force_color_prompt=yes/force_color_prompt=yes/' /etc/skel/.bashrc && \
-   # Add call to conda init script see https://stackoverflow.com/a/58081608/4413446
-   echo 'eval "$(conda shell.bash hook)"' >> /etc/skel/.bashrc && \
-   # fix https://github.com/jupyter/docker-stacks/issues/815
-   cat /etc/skel/.bashrc >> /etc/bash.bashrc
-
 # Create NB_USER with name jovyan user with UID=1000 and in the 'users' group
 # and make sure these dirs are writable by the `users` group.
 RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
@@ -81,8 +73,11 @@ RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
 
 USER ${NB_UID}
 
-# Pin python version here, or set it to "default"
+# Pin python version here, or leave it empty for the latest version
 ARG PYTHON_VERSION=3.11
+
+# Pin micromamba version here, or leave it empty for the latest version
+ARG MICROMAMBA_VERSION=2.0.0-0
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -90,31 +85,64 @@ ARG PYTHON_VERSION=3.11
 COPY --chown="${NB_UID}:${NB_GID}" initial-condarc "${CONDA_DIR}/.condarc"
 WORKDIR /tmp
 RUN set -x && \
-    arch=$(uname -m) && \
-    if [ "${arch}" = "x86_64" ]; then \
-        # Should be simpler, see <https://github.com/mamba-org/mamba/issues/1437>
-        arch="64"; \
-    fi &&  \
-    wget --progress=dot:giga -O /tmp/micromamba.tar.bz2 \
-        "https://micromamba.snakepit.net/api/micromamba/linux-${arch}/latest" && \
-    tar -xvjf /tmp/micromamba.tar.bz2 --strip-components=1 bin/micromamba && \
-    rm /tmp/micromamba.tar.bz2 && \
-    PYTHON_SPECIFIER="python=${PYTHON_VERSION}" && \
-    if [[ "${PYTHON_VERSION}" == "default" ]]; then PYTHON_SPECIFIER="python"; fi && \
-    # Install the packages
-    ./micromamba install \
-        --root-prefix="${CONDA_DIR}" \
-        --prefix="${CONDA_DIR}" \
-        --yes \
+    # Computing artifact location
+    case "$(uname)" in \
+      Linux) \
+        PLATFORM="linux" ;; \
+      Darwin) \
+        PLATFORM="osx" ;; \
+      *NT*) \
+        PLATFORM="win" ;; \
+    esac && \
+    ARCH="$(uname -m)" && \
+    case "$ARCH" in \
+      aarch64|ppc64le|arm64) \
+          ;; \
+      *) \
+        ARCH="64" ;; \
+    esac && \
+    case "$PLATFORM-$ARCH" in \
+        linux-aarch64|linux-ppc64le|linux-64|osx-arm64|osx-64|win-64) \
+            ;; \
+        *) \
+        echo "Failed to detect your OS" >&2 && \
+        exit 1 ;; \
+    esac && \
+    if [ "${MICROMAMBA_VERSION:-}" = "" ]; then \
+        RELEASE_URL="https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-${PLATFORM}-${ARCH}" ; \
+    else \
+        RELEASE_URL="https://github.com/mamba-org/micromamba-releases/releases/download/${MICROMAMBA_VERSION}/micromamba-${PLATFORM}-${ARCH}" ; \
+    fi && \
+    BIN_FOLDER="${CONDA_DIR}/bin" && \
+    mkdir -p "${BIN_FOLDER}" && \
+    curl "${RELEASE_URL}" -o "${BIN_FOLDER}/mamba" -fsSL --compressed && \
+    chmod +x "${BIN_FOLDER}/mamba"
+
+USER root
+
+ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
+
+# Enable prompt color in the skeleton .bashrc before creating the default NB_USER
+# hadolint ignore=SC2016
+RUN sed -i 's/^#force_color_prompt=yes/force_color_prompt=yes/' /etc/skel/.bashrc && \
+    # Add call to micromamba init script
+    echo 'eval "$(mamba shell hook --shell bash)"' >> /etc/skel/.bashrc && \
+    # fix https://github.com/jupyter/docker-stacks/issues/815
+    cat /etc/skel/.bashrc >> /etc/bash.bashrc
+
+
+USER ${NB_UID}
+
+RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTHON_SPECIFIER="python=${PYTHON_VERSION}"; fi && \
+        mamba install --yes \
         "${PYTHON_SPECIFIER}" \
-        'mamba' \
-        'jupyter_core' && \
-    rm micromamba && \
-    # Pin major.minor version of python
-    mamba list python | grep '^python ' | tr -s ' ' | cut -d ' ' -f 1,2 >> "${CONDA_DIR}/conda-meta/pinned" && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}" && \
-    fix-permissions "/home/${NB_USER}"
+        'jupyter_core' \
+        && \
+        # Pin major.minor version of python
+        mamba list python | sed 's/^[[:space:]]*//' | grep '^python ' | tr -s ' ' | cut -d ' ' -f 1,2 >> "${CONDA_DIR}/conda-meta/pinned" && \
+        mamba clean --all -f -y && \
+        fix-permissions "${CONDA_DIR}" && \
+        fix-permissions "/home/${NB_USER}"
 
 USER root
 
@@ -170,9 +198,9 @@ USER ${NB_UID}
 
 RUN mamba install --yes \
     # code-server requirement
-    'nodejs==22.6.*' \
-    'jupyterlab==4.2.*' \
+    'nodejs==22.9.*' \
     'notebook==7.2.*' \
+    'jupyterlab==4.2.*' \
     'jupyterhub==5.0.*' \
     && \
     jupyter notebook --generate-config && \
@@ -189,7 +217,7 @@ EXPOSE $JUPYTER_PORT
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.91.1 && \
+    sh /tmp/install.sh --version 4.93.1 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -339,7 +367,7 @@ RUN \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Desktop
-RUN wget -q "https://sourceforge.net/projects/turbovnc/files/3.1/turbovnc_3.1_amd64.deb/download" \
+RUN wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.1.2/turbovnc_3.1.2_amd64.deb" \
     -O /tmp/turbovnc_amd64.deb && \
     apt-get update --yes && \
     apt-get install --yes --no-install-recommends \
@@ -378,7 +406,7 @@ RUN mamba install --quiet --yes \
     fix-permissions "${CONDA_DIR}"
 
 # CUDA
-RUN mamba install --quiet --yes \
+RUN MAMBA_NO_LOW_SPEED_LIMIT=1 mamba install --quiet --yes \
     'cuda' \
     && \
     mamba clean --all -f -y && \
@@ -457,8 +485,8 @@ RUN \
     'jupyter-archive=3.4.*' \
     && \
     pip install --quiet --no-cache-dir \
-    'jupyterlab-unfold==0.3.*' \
-    'jupyterlab-favorites==3.2.*' \
+    # 'jupyterlab-unfold==0.3.*' \
+    # 'jupyterlab-favorites==3.2.*' \
     'jupyterlab-scenes==2.0.*' \
     && \
     mamba clean --all -f -y && \    
@@ -492,21 +520,28 @@ COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 # Code extensions
 RUN for ext in \
         ms-python.python \
+        ms-python.pylint \
         ms-toolsai.jupyter \
         ms-toolsai.vscode-jupyter-powertoys \
         ms-python.black-formatter \
-        streetsidesoftware.code-spell-checker \
-        sugatoray.vscode-git-extension-pack \
-        Kelvin.vscode-sshfs \
+        streetsidesoftware.code-spell-checker@4.0.13 \
         hediet.vscode-drawio \
+        eamodio.gitlens \
+        donjayamanne.githistory \
+        mhutchie.git-graph \
+        waderyan.gitblame \
+        codezombiech.gitignore \
+        ziyasal.vscode-open-in-github \
+        alefragnani.project-manager \
+        ziyasal.vscode-open-in-github \
         ; do \
         code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.17.1 \
-    GitHub.copilot@1.213.0 \
-    Continue.continue@0.8.43 \
+    GitHub.copilot-chat@0.20.3 \
+    GitHub.copilot@1.234.0 \
+    Continue.continue@0.8.52 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done
@@ -529,7 +564,43 @@ COPY --from=base /var/ /var/
 COPY --from=base /home/ /home/
 COPY --from=base /opt/ /opt/
 
+# set Mamba root prefix
+ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
+
 USER root
+
+# Install VS Code
+RUN wget -qO- https://go.microsoft.com/fwlink/?LinkID=760868 -O /tmp/vscode.deb && \
+    echo "code code/add-microsoft-repo boolean true" | sudo debconf-set-selections && \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends gnupg /tmp/vscode.deb && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/vscode.deb
+
+# Install Google Chrome
+RUN wget -qO- https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/google-chrome.deb && \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends /tmp/google-chrome.deb && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/google-chrome.deb
+
+# Modify code.desktop to include --no-sandbox
+RUN sed -i 's|Exec=/usr/share/code/code|Exec=/usr/share/code/code --no-sandbox|' /usr/share/applications/code.desktop && \
+    sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --no-sandbox|' /usr/share/applications/google-chrome.desktop
+
+# Add alias to /etc/bash.bashrc to include --no-sandbox
+RUN cat <<EOF >> /etc/bash.bashrc
+alias code='code --no-sandbox'
+alias google-chrome='google-chrome --no-sandbox'
+alias google-chrome-stable='google-chrome-stable --no-sandbox'
+EOF
+
+# Create a wrapper script for Google Chrome with --no-sandbox
+RUN echo -e '#!/bin/bash\nexec /usr/bin/google-chrome-stable --no-sandbox "$@"' > /usr/local/bin/google-chrome-stable-no-sandbox && \
+    chmod +x /usr/local/bin/google-chrome-stable-no-sandbox && \
+    # Set Google Chrome as the default browser with --no-sandbox
+    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
+    update-alternatives --set x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox && \
+    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
+    update-alternatives --set gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox
 
 # Configure container startup
 ENTRYPOINT ["tini", "-g", "--"]
@@ -582,7 +653,7 @@ USER ${NB_UID}
 
 RUN \
     pip install --quiet --no-cache-dir \
-    'git+https://github.com/dive4dec/dive_ai@2523f7cae14e9cf66f0faada22cd5e8e3b3a4f02#subdirectory=dive_ai' && \
+    'git+https://github.com/dive4dec/dive_ai@3b9e78f5adaa7c633c8eaf5c0ae392b1627683d6#subdirectory=dive_ai' && \
     fix-permissions "${CONDA_DIR}"
 
 RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
@@ -597,7 +668,11 @@ USER ${NB_USER}
 
 # Collaboration
 RUN mamba install --quiet --yes \
-    'jupyter-collaboration=2.1.*' \
+    # 'jupyter-collaboration=2.1.*' \
+    'jupyter-collaboration=3.0.*' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'jupyterlab-collaborative-chat' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
