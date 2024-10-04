@@ -667,11 +667,12 @@ FROM prod AS collab
 USER ${NB_USER}
 
 # Collaboration
-RUN mamba install --quiet --yes \
+RUN \
+    # mamba install --quiet --yes \
     # 'jupyter-collaboration=2.1.*' \
-    'jupyter-collaboration=3.0.*' \
-    && \
-    pip install --quiet --no-cache-dir \
+    # && \
+    pip install --pre --quiet --no-cache-dir \
+    'jupyter-collaboration==3.0.0beta6' \
     'jupyterlab-collaborative-chat' \
     && \
     mamba clean --all -f -y && \
