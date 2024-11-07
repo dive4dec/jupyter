@@ -169,6 +169,7 @@ RUN apt-get update --yes && \
     texlive-xetex \
     texlive-fonts-recommended \
     texlive-plain-generic \
+    texlive-extra-utils \
     # Enable clipboard on Linux host systems
     xclip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -334,7 +335,8 @@ RUN mamba install --quiet --yes \
     && \
     pip install --quiet --no-cache-dir \
     'divewidgets' \
-    'nbgrader==0.9.*' \
+    # 'nbgrader==0.9.*' \
+    'nbgrader@git+https://github.com/dive4dec/nbgrader.git' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
