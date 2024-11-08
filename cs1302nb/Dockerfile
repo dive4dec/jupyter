@@ -77,7 +77,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.11
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.0.0-0
+ARG MICROMAMBA_VERSION=2.0.2-2
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -144,6 +144,26 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
         fix-permissions "${CONDA_DIR}" && \
         fix-permissions "/home/${NB_USER}"
 
+
+# Install Jupyter Notebook, Lab, and Hub
+RUN \
+    mamba install --yes --quiet \
+    # code-server requirement
+    'nodejs==22.9.*' \
+    # 'notebook==7.2.*' \
+    'jupyterlab==4.3.*' \
+    'jupyterhub==5.2.*' \
+    && \
+    # jupyter notebook --generate-config && \
+    mamba clean --all -f -y && \
+    npm cache clean --force && \
+    jupyter lab clean && \
+    fix-permissions "${CONDA_DIR}" && \
+    fix-permissions "/home/${NB_USER}"
+
+ENV JUPYTER_PORT=8888
+EXPOSE $JUPYTER_PORT
+
 USER root
 
 # Install all OS dependencies for notebook server that starts but lacks all
@@ -169,7 +189,7 @@ RUN apt-get update --yes && \
     texlive-xetex \
     texlive-fonts-recommended \
     texlive-plain-generic \
-    texlive-extra-utils \
+    dvisvgm \
     # Enable clipboard on Linux host systems
     xclip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -192,74 +212,16 @@ RUN \
     xvfb \
     ;
 
-# Install Jupyter Notebook, Lab, and Hub
-WORKDIR /tmp
-
-USER ${NB_UID}
-
-RUN mamba install --yes \
-    # code-server requirement
-    'nodejs==22.9.*' \
-    'notebook==7.2.*' \
-    'jupyterlab==4.2.*' \
-    'jupyterhub==5.0.*' \
+# Desktop
+RUN wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.1.2/turbovnc_3.1.2_amd64.deb" \
+    -O /tmp/turbovnc_amd64.deb && \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    /tmp/turbovnc_amd64.deb \
     && \
-    jupyter notebook --generate-config && \
-    mamba clean --all -f -y && \
-    npm cache clean --force && \
-    jupyter lab clean && \
-    fix-permissions "${CONDA_DIR}" && \
-    fix-permissions "/home/${NB_USER}"
-
-USER root
-
-ENV JUPYTER_PORT=8888
-EXPOSE $JUPYTER_PORT
-
-### code-server ###
-RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.93.1 && \
-    fix-permissions "${HOME}" && \
-    fix-permissions /usr/lib/code-server/ && \
-    rm -rf ~/.cache/code-server/ && \
-    rm -rf /tmp/install.sh
-
-USER ${NB_UID}
-
-RUN mamba install --quiet --yes \
-    'websockify=0.11.*' \
-    'jupyter-vscode-proxy=0.6' \
-    'jupytext=1.16.*' \
-    'nbgitpuller=1.2.*' \
-    'black=24.4.*' \
-    'jupyterlab_code_formatter=2.2.*' \
-    'jupyterlab-lsp=5.1.*' \
-    'python-lsp-server=1.11.*' \
-    'jupyter-resource-usage==1.0.*' \
-    && \
-    pip install --quiet --no-cache-dir \
-    'jupyterlab-git==0.50.*' \    
-    'jupyterlab_filesystem_access==0.6.*' \
-    'jupyter-www-proxy' \
-    && \
-    # See https://jupyterlab-lsp.readthedocs.io/en/latest/Language%20Servers.html#example-getting-all-the-node-js-based-language-servers
-    npm install -g --save-dev  \
-    bash-language-server \
-    dockerfile-language-server-nodejs \
-    pyright \
-    sql-language-server \
-    typescript-language-server \
-    unified-language-server \
-    vscode-css-languageserver-bin \
-    vscode-html-languageserver-bin \
-    vscode-json-languageserver-bin \
-    yaml-language-server \
-    && \
-    npm cache clean --force && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
-USER root
+    rm /tmp/turbovnc_amd64.deb && \
+    ln -s /opt/TurboVNC/bin/* /usr/local/bin/ && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Programming languages backends
 RUN \
@@ -284,14 +246,40 @@ RUN bash /tmp/mit-scheme/buildscript.sh
 RUN apt-get update --yes && \
     apt-get install --yes --no-install-recommends libzmq3-dev
 
-USER ${NB_USER}
+# Maxima
+COPY maxima/ /tmp/maxima/
+RUN bash /tmp/maxima/buildscript.sh
 
-# Documentations with MyST
+COPY --chown=${NB_USER}:${NB_GID} quicklisp /tmp/quicklisp
+RUN mkdir -p /opt/quicklisp && chown -R ${NB_USER} $_ && fix-permissions $_ && \
+    mv /tmp/quicklisp/sbclrc /etc/
+    
+USER ${NB_USER}
+RUN bash /tmp/quicklisp/buildscript.sh
+
+# Dependencies for mystmd
+USER root
+
 RUN \
-    npm install -g \
-    mystmd \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    latexmk \
+    biber \
+    lmodern \
     && \
-    npm cache clean --force
+    paperconfig -p a4 \
+    && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+### code-server ###
+RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
+    sh /tmp/install.sh --version 4.95.1 && \
+    fix-permissions "${HOME}" && \
+    fix-permissions /usr/lib/code-server/ && \
+    rm -rf ~/.cache/code-server/ && \
+    rm -rf /tmp/install.sh
+
+USER ${NB_UID}
 
 # Programming languages support
 RUN \
@@ -341,49 +329,104 @@ RUN mamba install --quiet --yes \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
-USER root
+RUN mamba install --quiet --yes \
+    'websockify=0.11.*' \
+    'jupyter-vscode-proxy=0.6' \
+    'jupytext=1.16.*' \
+    'nbgitpuller=1.2.*' \
+    'black=24.4.*' \
+    'jupyterlab_code_formatter=2.2.*' \
+    'jupyterlab-lsp=5.1.*' \
+    'python-lsp-server=1.11.*' \
+    'jupyter-resource-usage==1.0.*' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'jupyterlab-git==0.50.*' \    
+    'jupyterlab_filesystem_access==0.6.*' \
+    'jupyter-www-proxy' \
+    && \
+    # See https://jupyterlab-lsp.readthedocs.io/en/latest/Language%20Servers.html#example-getting-all-the-node-js-based-language-servers
+    npm install -g --save-dev  \
+    bash-language-server \
+    dockerfile-language-server-nodejs \
+    pyright \
+    sql-language-server \
+    typescript-language-server \
+    unified-language-server \
+    vscode-css-languageserver-bin \
+    vscode-html-languageserver-bin \
+    vscode-json-languageserver-bin \
+    yaml-language-server \
+    && \
+    npm cache clean --force && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
 
-# Maxima
-COPY maxima/ /tmp/maxima/
-RUN bash /tmp/maxima/buildscript.sh
-
-COPY --chown=${NB_USER}:${NB_GID} quicklisp /tmp/quicklisp
-RUN mkdir -p /opt/quicklisp && chown -R ${NB_USER} $_ && fix-permissions $_ && \
-    mv /tmp/quicklisp/sbclrc /etc/
-    
-USER ${NB_USER}
-RUN bash /tmp/quicklisp/buildscript.sh
-
-# Dependencies for mystmd
-USER root
-
+# Documentations with MyST
 RUN \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    latexmk \
-    biber \
-    lmodern \
+    npm install -g \
+    mystmd \
     && \
-    paperconfig -p a4 \
-    && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    npm cache clean --force
 
-# Desktop
-RUN wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.1.2/turbovnc_3.1.2_amd64.deb" \
-    -O /tmp/turbovnc_amd64.deb && \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    /tmp/turbovnc_amd64.deb \
-    && \
-    rm /tmp/turbovnc_amd64.deb && \
-    ln -s /opt/TurboVNC/bin/* /usr/local/bin/ && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-USER ${NB_USER}
 
 RUN pip install --quiet --no-cache-dir \
     'jupyter-remote-desktop-proxy==2.0.*' \
     # git+https://github.com/b-data/jupyter-remote-desktop-proxy.git@QGIS \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+
+# Support virtual environments in jupyter notebook
+RUN mamba install --quiet --yes \
+    'ipykernel=6.29.*' \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+# Tensorflow
+RUN pip install --quiet --no-cache-dir \
+    'tensorflow[and-cuda]==2.18.*' \
+    && \
+    fix-permissions "${CONDA_DIR}"
+
+# PyTorch
+RUN mamba install --quiet --yes -c pytorch \
+    'pytorch-cuda=12.4' \
+    'pytorch=2.5.*' \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+    
+# AI
+# Langchain: https://python.langchain.com/docs/how_to/installation/
+# TorchTune: https://github.com/pytorch/torchtune
+RUN mamba install --quiet --yes \
+    'langchain=0.3.*' \
+    'langchain-openai=0.2.*' \
+    'langchain-community=0.3.*' \
+    \
+    'tiktoken=0.8.*' \
+    'ollama=0.1.*' \
+    'git-lfs=3.5.*' \
+    'transformers=4.46.*' \
+    'accelerate=1.1.*' \
+    'evaluate=0.4.*' \
+    \
+    'nvitop=1.3.*' \
+    'gpustat=1.1.*' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'torchvision==0.20.*' \
+    'torchaudio==2.5.*' \
+    'torchtune==0.3.*' \
+    'chromadb==0.5.*' \
+    'flax==0.10.*' \
+    'tensorflow-datasets==4.9.*' \
+    'tensorflow-hub==0.16.*' \
+    'tensorflowjs==4.22.*' \
+    'tensorflow-decision-forests==1.11.*' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
@@ -405,80 +448,6 @@ RUN mamba install --quiet --yes \
     xlrd \
     && \
     mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
-# CUDA
-RUN MAMBA_NO_LOW_SPEED_LIMIT=1 mamba install --quiet --yes \
-    'cuda' \
-    && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
- 
-
-# Tensorflow
-RUN pip install --quiet --no-cache-dir \
-    'tensorflow==2.15.*' \
-    'tensorflow-datasets==4.9.*' \
-    'flax==0.8.*' \
-    'tensorflow-hub==0.16.*' \
-    'tensorflow-decision-forests==1.8.*' \
-    && \
-    pip install --quiet --no-cache-dir --no-deps \
-    'tensorflowjs==4.20.*' \
-    && \
-    fix-permissions "${CONDA_DIR}"
-
-# PyTorch
-RUN pip install --quiet --no-cache-dir \
-    'torch==2.3.*' \
-    'torchvision==0.18.*' \
-    'torchaudio==2.3.*' \
-    && \
-    fix-permissions "${CONDA_DIR}"
-
-# Deep learning tools
-RUN pip install --quiet --no-cache-dir \
-    'nvitop' \
-    'gpustat' \
-    'jdc' \
-    'jupyterlab-tensorboard-pro' \
-    && \
-    fix-permissions "${CONDA_DIR}"
-
-# LLM
-USER root
-
-RUN curl -fsSL https://ollama.com/install.sh | sh
-
-USER ${NB_USER}
-
-RUN pip install --quiet --no-cache-dir --pre -U -f https://mlc.ai/wheels mlc-llm-nightly-cu121 mlc-ai-nightly-cu121 && \
-    pip install --quiet --no-cache-dir \
-    'langchain_openai' \
-    'jupyter_ai' \
-    'openai' \
-    'ollama' \
-    'vllm' \
-    'chromadb' \
-    'tiktoken' \
-    'nvitop' \
-    'gpustat' \
-    'jdc' \
-    'jupyterlab-tensorboard-pro' \
-    && \
-    mamba install --quiet --yes \
-    'git-lfs' \
-    && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
-RUN pip install --quiet --no-cache-dir \
-    'transformers' \
-    'torchtune' \
-    'accelerate' \
-    'evaluate' \
-    && \
     fix-permissions "${CONDA_DIR}"
 
 # Other UI enhancements
@@ -505,12 +474,6 @@ RUN pip install --quiet --no-cache-dir \
     # not compatible with jupyterlab-myst
     # 'jupyterlab_rise==0.42.*' \
     'jupyterlab-deck==0.2.*' && \
-    fix-permissions "${CONDA_DIR}"
-
-# needed for nbgrader
-RUN pip install --quiet --no-cache-dir \
-    'tornado==6.4.*' \
-    && \
     fix-permissions "${CONDA_DIR}"
 
 # Copy local files as late as possible to avoid cache busting
@@ -541,33 +504,32 @@ RUN for ext in \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.20.3 \
-    GitHub.copilot@1.234.0 \
-    Continue.continue@0.8.52 \
+    GitHub.copilot-chat@0.22.2 \
+    GitHub.copilot@1.243.0 \
+    Continue.continue@0.8.55 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done
 
-# Other UI enhancements
+# Other Tools
+USER root
+
+RUN curl -fsSL https://ollama.com/install.sh | sh
+
+USER ${NB_USER}
+
 RUN \
     mamba install --quiet --yes \
-    'gh' \
+    'gh=2.60.1' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'jupyter_ai' \
+    # 'vllm' \
+    'jdc' \
+    'jupyterlab-tensorboard-pro' \
     && \
     mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
-
-# ----------------------------------------------------------
-
-FROM foundation AS prod
-
-COPY --from=base /etc/ /etc/
-COPY --from=base /usr/ /usr/
-COPY --from=base /var/ /var/
-COPY --from=base /home/ /home/
-COPY --from=base /opt/ /opt/
-
-# set Mamba root prefix
-ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
 
 USER root
 
@@ -604,20 +566,51 @@ RUN echo -e '#!/bin/bash\nexec /usr/bin/google-chrome-stable --no-sandbox "$@"' 
     update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
     update-alternatives --set gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox
 
+# # # CUDA
+# # RUN MAMBA_NO_LOW_SPEED_LIMIT=1 mamba install --quiet --yes \
+# #     'cuda' \
+# #     && \
+# #     mamba clean --all -f -y && \
+# #     fix-permissions "${CONDA_DIR}"
+# #
+# # # MLC: https://llm.mlc.ai/docs/get_started/introduction.html
+# # # MLC Wasm: https://llm.mlc.ai/docs/install/emcc.html 
+# # RUN mamba install --quiet --yes \    
+# #     'cuda-nvcc=12.3.*' \
+# #     'emscripten=3.1.*' \
+# #     && \
+# #     pip install --quiet --no-cache-dir --pre -U -f https://mlc.ai/wheels mlc-ai-nightly-cu123 \
+# #     && \
+# #     pip install --quiet --no-cache-dir --pre -U -f https://mlc.ai/wheels mlc-llm-nightly-cu123 \
+# #     && \
+# #     mamba clean --all -f -y && \
+# #     fix-permissions "${CONDA_DIR}"
+
+# ----------------------------------------------------------
+
+FROM foundation AS prod
+
+COPY --from=base /etc/ /etc/
+COPY --from=base /usr/ /usr/
+COPY --from=base /var/ /var/
+COPY --from=base /home/ /home/
+COPY --from=base /opt/ /opt/
+
+# set Mamba root prefix
+ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
+
+
+
 # Configure container startup
 ENTRYPOINT ["tini", "-g", "--"]
 # Configure container startup
 CMD ["start-notebook.sh"]
 
-# ### Tensorflow
-# # minor issues: 
-# # https://stackoverflow.com/questions/44232898/memoryerror-in-tensorflow-and-successful-numa-node-read-from-sysfs-had-negativ
-# # tested with:
-# # https://docs.vmware.com/en/VMware-vSphere-Bitfusion/4.0/Example-Guide/GUID-8F6BF9A8-DC1A-4ACD-A2FF-C9CD0B50A9DC.html
+### Tensorflow
+# minor issues: 
+# https://github.com/tensorflow/tensorflow/issues/63109
 
 ENV TF_CPP_MIN_LOG_LEVEL=2
-ENV XLA_FLAGS=--xla_gpu_cuda_data_dir=${CONDA_DIR}
-ENV LD_LIBRARY_PATH="${CONDA_DIR}/lib/:${CONDA_DIR}/lib/python3.12/site-packages/nvidia/cudnn/lib/"
 
 # https://github.com/tensorflow/tensorboard/pull/3674
 ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
