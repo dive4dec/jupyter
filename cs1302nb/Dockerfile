@@ -467,12 +467,16 @@ RUN mamba install --quiet --yes \
     h5py \
     numba \
     patsy \
-    pytables \
+    ## conflicts with pytorch cuda version
+    # pytables \
     seaborn \
     scikit-learn \
     sqlalchemy \
     statsmodels \
     xlrd \
+    && \
+    pip install --quiet --no-cache-dir \
+    tables \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
