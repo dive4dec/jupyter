@@ -465,7 +465,7 @@ RUN mamba install --quiet --yes \
     cd ${CONDA_DIR}/lib/python3.11/site-packages/bitsandbytes/ && \
     ln -s libbitsandbytes_cuda120.so libbitsandbytes_cuda124.so
 
-    RUN mamba install --quiet --yes \
+RUN mamba install --quiet --yes \
     altair \
     bokeh \
     bottleneck \
@@ -582,8 +582,6 @@ RUN \
 
 # Themes
 RUN pip install --quiet --no-cache-dir \
-    'jupyterlab_theme_solarized_dark' \
-    'jupyterlab-night' \
     'jupyterlab_theme_solarized_dark' \
     'theme-darcula' && \
     fix-permissions "${CONDA_DIR}"

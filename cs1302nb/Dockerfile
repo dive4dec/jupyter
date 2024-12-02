@@ -161,12 +161,15 @@ RUN wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.1.2/turbov
 RUN \
     apt-get update --yes && \
     apt-get install --yes --no-install-recommends \
+    # Java
+    default-jdk default-jre \
     # C, C++
     build-essential \
     gdb \
     fpc-source \
     # SQL
     sqlite3 \
+    pdf2svg \
     && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -204,7 +207,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.11
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.0.2-2
+ARG MICROMAMBA_VERSION=2.0.4
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -243,8 +246,7 @@ RUN set -x && \
     BIN_FOLDER="${CONDA_DIR}/bin" && \
     mkdir -p "${BIN_FOLDER}" && \
     curl "${RELEASE_URL}" -o "${BIN_FOLDER}/mamba" -fsSL --compressed && \
-    chmod +x "${BIN_FOLDER}/mamba" && \
-    ln -s "${BIN_FOLDER}/mamba" "${BIN_FOLDER}/conda"
+    chmod +x "${BIN_FOLDER}/mamba"
 
 USER root
 
@@ -254,11 +256,13 @@ ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
 # Enable prompt color in the skeleton .bashrc before creating the default NB_USER
 # hadolint ignore=SC2016
 RUN sed -i 's/^#force_color_prompt=yes/force_color_prompt=yes/' /etc/skel/.bashrc && \
-    # Add call to micromamba init script
-    echo 'eval "$(mamba shell hook --shell bash)"' >> /etc/skel/.bashrc && \
-    # fix https://github.com/jupyter/docker-stacks/issues/815
     cat /etc/skel/.bashrc >> /etc/bash.bashrc
 
+# Add call to micromamba init script
+RUN cat <<'EOF' >> /etc/bash.bashrc
+eval "$(mamba shell hook --shell bash)"
+alias conda="mamba"
+EOF
 
 USER ${NB_UID}
 
@@ -292,9 +296,9 @@ RUN mamba install --quiet --yes -c pytorch \
 RUN \
     mamba install --yes --quiet \
     # code-server requirement
-    'nodejs==22.9.*' \
-    # 'notebook==7.2.*' \
-    'jupyterlab==4.3.*' \
+    'nodejs==22.11.*' \
+    'notebook==7.2.*' \
+    'jupyterlab==4.2.*' \
     'jupyterhub==5.2.*' \
     && \
     # jupyter notebook --generate-config && \
@@ -335,7 +339,7 @@ RUN \
     # C, C++
     'xeus-cling=0.15.*' \
     # Java
-    'openjdk=22.0.*' \
+    # 'openjdk=22.0.*' \
     # Documentations
     'jupyterlab-myst=2.4.*' \
     'jupyterlite=0.4.*' \
@@ -385,7 +389,7 @@ RUN mamba install --quiet --yes \
     pip install --quiet --no-cache-dir \
     'nbgitpuller==1.2.*' \
     'jupyterlab-git==0.50.*' \    
-    'jupyterlab_filesystem_access==0.6.*' \
+    # 'jupyterlab_filesystem_access==0.6.*' \
     'jupyter-www-proxy' \
     && \
     # See https://jupyterlab-lsp.readthedocs.io/en/latest/Language%20Servers.html#example-getting-all-the-node-js-based-language-servers
@@ -488,11 +492,11 @@ RUN mamba install --quiet --yes \
 RUN \
     mamba install --quiet --yes \
     'jupyter-archive=3.4.*' \
-    && \
-    pip install --quiet --no-cache-dir \
+    # && \
+    # pip install --quiet --no-cache-dir \
     # 'jupyterlab-unfold==0.3.*' \
     # 'jupyterlab-favorites==3.2.*' \
-    'jupyterlab-scenes==2.0.*' \
+    # 'jupyterlab-scenes==2.0.*' \
     && \
     mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
@@ -555,13 +559,13 @@ USER ${NB_USER}
 
 RUN \
     mamba install --quiet --yes \
-    'gh=2.61.*' \
+    'gh=2.63.*' \
     'jupyter-ai=2.28.*' \
     && \
     pip install --quiet --no-cache-dir \
     'divewidgets' \
     # 'nbgrader==0.9.*' \
-    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@08c3a84298206b36128fbc0aa638d897319fd302' \
+    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@895aa7ddf55fcdd85e1dd211636f161a6f3ddbe2' \
     # 'vllm' \
     'jdc' \
     # 'jupyterlab-tensorboard-pro' \
@@ -611,7 +615,7 @@ CMD ["start-notebook.sh"]
 # minor issues: 
 # https://github.com/tensorflow/tensorflow/issues/63109
 
-ENV TF_CPP_MIN_LOG_LEVEL=2
+# ENV TF_CPP_MIN_LOG_LEVEL=2
 
 # https://github.com/tensorflow/tensorboard/pull/3674
 ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
@@ -664,12 +668,12 @@ USER ${NB_USER}
 
 # Collaboration
 RUN \
-    # mamba install --quiet --yes \
-    # 'jupyter-collaboration=2.1.*' \
+    mamba install --quiet --yes \
+    'jupyter-collaboration=3.0.*' \
     # && \
-    pip install --pre --quiet --no-cache-dir \
-    'jupyter-collaboration==3.0.0beta6' \
-    'jupyterlab-collaborative-chat' \
+    # pip install --pre --quiet --no-cache-dir \
+    # 'jupyter-collaboration==3.0.1' \
+    # 'jupyterlab-chat==0.6.2' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
