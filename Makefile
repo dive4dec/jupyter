@@ -8,13 +8,13 @@
 
 # Current information for different docker images
 # ===============================================
-cs1302nb := cs1302nb^0.1.10
+cs1302nb := cs1302nb^0.1.11b
 cs1302nb_collab := $(cs1302nb)^collab
 cs1302nb_core := $(cs1302nb)^^core
-jhub := jhub^4.0.0b
+jhub := jhub^4.0.0c
 deephub := deephub^4.0.0a
 deepnb := deepnb^0.1.4e
-cs5483nb := cs5483nb^0.1.6a
+cs5483nb := cs5483nb^0.2.0a
 cs5483nb_collab := $(cs5483nb)^collab
 deepnb_collab := $(deepnb)^collab
 #
