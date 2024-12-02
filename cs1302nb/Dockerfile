@@ -272,11 +272,11 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
         fix-permissions "${CONDA_DIR}" && \
         fix-permissions "/home/${NB_USER}"
 
-# Tensorflow
-RUN pip install --quiet --no-cache-dir \
-    'tensorflow[and-cuda]==2.18.*' \
-    && \
-    fix-permissions "${CONDA_DIR}"
+# # Tensorflow
+# RUN pip install --quiet --no-cache-dir \
+#     'tensorflow[and-cuda]==2.18.*' \
+#     && \
+#     fix-permissions "${CONDA_DIR}"
 
 # PyTorch
 RUN mamba install --quiet --yes -c pytorch \
@@ -321,7 +321,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.95.1 && \
+    sh /tmp/install.sh --version 4.95.3 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -442,21 +442,24 @@ RUN mamba install --quiet --yes \
     'transformers=4.46.*' \
     'accelerate=1.1.*' \
     'evaluate=0.4.*' \
+    'bitsandbytes==0.44.*' \
     \
     'nvitop=1.3.*' \
     'gpustat=1.1.*' \
     && \
     pip install --quiet --no-cache-dir \
     'torchtune==0.3.*' \
-    'chromadb==0.5.*' \
-    'flax==0.10.*' \
-    'tensorflow-datasets==4.9.*' \
-    'tensorflow-hub==0.16.*' \
-    'tensorflowjs==4.22.*' \
-    'tensorflow-decision-forests==1.11.*' \
+    # 'chromadb==0.5.*' \
+    # 'flax==0.10.*' \
+    # 'tensorflow-datasets==4.9.*' \
+    # 'tensorflow-hub==0.16.*' \
+    # 'tensorflowjs==4.22.*' \
+    # 'tensorflow-decision-forests==1.11.*' \
     && \
     mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
+    fix-permissions "${CONDA_DIR}" && \
+    cd ${CONDA_DIR}/lib/python3.11/site-packages/bitsandbytes/ && \
+    ln -s libbitsandbytes_cuda120.so libbitsandbytes_cuda124.so
 
 RUN mamba install --quiet --yes \
     altair \
@@ -545,7 +548,8 @@ RUN for ext in \
 # Other Tools
 USER root
 
-RUN curl -fsSL https://ollama.com/install.sh | sh
+RUN curl -L https://ollama.com/download/ollama-linux-amd64.tgz -o ollama-linux-amd64.tgz && \
+    tar -C /usr -xzf ollama-linux-amd64.tgz
 
 USER ${NB_USER}
 
