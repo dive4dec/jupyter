@@ -16,11 +16,12 @@ cd maxima-jupyter
 # perl -pi -e 's/"\\\\tag{\$~A\$}"/""/g' src/overrides.lisp && \
 maxima --batch-string="load(\"load-maxima-jupyter.lisp\");jupyter_system_install(true, \"pkg/\");"
 perl -pi -e 's`/usr/local`/opt/conda`g' pkg/usr/local/share/jupyter/kernels/maxima/kernel.json
-mv pkg/usr/local/share/jupyter/kernels/maxima ${CONDA_DIR}/share/jupyter/kernels/
+mkdir -p ${CONDA_DIR}/share/jupyter/kernels/
+mv pkg/usr/local/share/jupyter/kernels/maxima $_
 mv pkg/usr/local/share/maxima-jupyter ${CONDA_DIR}/share/
 
-maxima --very-quiet --preload-lisp=/opt/conda/share/maxima-jupyter/bundle.lisp \
-    --preload-lisp=/opt/conda/share/maxima-jupyter/local-projects/maxima-jupyter/load-maxima-jupyter.lisp \
+maxima --very-quiet --preload-lisp=${CONDA_DIR}/share/maxima-jupyter/bundle.lisp \
+    --preload-lisp=${CONDA_DIR}/share/maxima-jupyter/local-projects/maxima-jupyter/load-maxima-jupyter.lisp \
     --batch-string='jupyter_kernel_start("examples/MaximaJupyterExample.ipynb")$'
 
 fix-permissions "/opt/quicklisp"

@@ -1,78 +1,193 @@
-ARG ROOT_CONTAINER=ubuntu:22.04
+ARG ROOT_CONTAINER=ubuntu:24.04
 
-FROM $ROOT_CONTAINER as foundation
+FROM $ROOT_CONTAINER AS foundation
+
+# Fix the UID conflict with user ubuntu when jovyan needs to be created later. 
+# See https://bugs.launchpad.net/cloud-images/+bug/2005129
+RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu
+
+# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Avoid prompt for user input for installation of dependencies
+ENV DEBIAN_FRONTEND=noninteractive
 
 ARG NB_USER="jovyan"
 ARG NB_UID="1000"
 ARG NB_GID="100"
 
-# Configure environment
 ENV CONDA_DIR=/opt/conda \
     SHELL=/bin/bash \
     NB_USER="${NB_USER}" \
     NB_UID=${NB_UID} \
     NB_GID=${NB_GID} \
-    LC_ALL=en_US.UTF-8 \
-    LANG=en_US.UTF-8 \
-    LANGUAGE=en_US.UTF-8
+    LC_ALL=C.UTF-8 \
+    LANG=C.UTF-8 \
+    LANGUAGE=C.UTF-8 \
+    TZ=Asia/Hong_Kong
 ENV PATH="${CONDA_DIR}/bin:${PATH}" \
     HOME="/home/${NB_USER}"
 
-# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
-# Fix: https://github.com/koalaman/shellcheck/wiki/SC3014
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
 USER root
-
-# Install all OS dependencies for notebook server that starts but lacks all
-# features (e.g., download as all possible file formats)
-ENV DEBIAN_FRONTEND noninteractive
-
-FROM foundation as base
+FROM foundation AS base
 
 RUN apt-get update --yes && \
-    # - apt-get upgrade is run to patch known vulnerabilities in apt-get packages as
-    #   the ubuntu base image is rebuilt too seldom sometimes (less than once a month)
+    # Patch newly discovered vulnerabilities in apt-get packages
     apt-get upgrade --yes && \
     apt-get install --yes --no-install-recommends \
-    # - bzip2 is necessary to extract the micromamba executable.
+    # To extract micromamba
     bzip2 \
     ca-certificates \
     locales \
     sudo \
-    # - tini is installed as a helpful container entrypoint that reaps zombie
-    #   processes and such of the actual executable we want to start, see
-    #   https://github.com/krallin/tini#why-tini for details.
+    # used as an entrypoint that reaps zombie processes.
+    # See https://github.com/krallin/tini#why-tini
     tini \
     wget \
     less \
     curl \
     && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
-    locale-gen
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Configure environment
-ENV CONDA_DIR=/opt/conda \
-    SHELL=/bin/bash \
-    NB_USER="${NB_USER}" \
-    NB_UID=${NB_UID} \
-    NB_GID=${NB_GID} \
-    LC_ALL=en_US.UTF-8 \
-    LANG=en_US.UTF-8 \
-    LANGUAGE=en_US.UTF-8
-ENV PATH="${CONDA_DIR}/bin:${PATH}" \
-    HOME="/home/${NB_USER}"
+RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
+    echo "C.UTF-8 UTF-8" >> /etc/locale.gen && \
+    locale-gen && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# Copy a script that we will use to correct permissions after running certain commands
+# Install all OS dependencies
+RUN apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    fonts-liberation \
+    # To convert notebooks to html files
+    pandoc \
+    # A wrapper script that runs no more
+    # to support `RESTARTABLE` option
+    run-one \
+    # Common useful utilities
+    git \
+    nano-tiny \
+    tzdata \
+    unzip \
+    vim-tiny \
+    # git-over-ssh
+    openssh-client \
+    # nbconvert dependencies
+    # See https://nbconvert.readthedocs.io/en/latest/install.html#installing-tex
+    texlive-xetex \
+    texlive-fonts-recommended \
+    texlive-plain-generic \
+    dvisvgm \
+    # Enable clipboard on Linux host systems
+    xclip && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Dependencies for mystmd
+RUN \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    latexmk \
+    biber \
+    lmodern \
+    && \
+    paperconfig -p a4 \
+    && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+
+# Desktop
+RUN \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    emacs \    
+    thonny \
+    dbus-x11 \
+    xfce4 \
+    xfce4-panel \
+    xfce4-session \
+    xfce4-settings \
+    xorg \
+    xubuntu-icon-theme \
+    x11-utils \
+    xfonts-base \
+    xvfb \
+    && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install VS Code
+RUN wget -qO- https://go.microsoft.com/fwlink/?LinkID=760868 -O /tmp/vscode.deb && \
+    echo "code code/add-microsoft-repo boolean true" | sudo debconf-set-selections && \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends gnupg /tmp/vscode.deb && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/vscode.deb
+
+# Install Google Chrome
+RUN wget -qO- https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/google-chrome.deb && \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends /tmp/google-chrome.deb && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/google-chrome.deb
+
+# Modify code.desktop to include --no-sandbox
+RUN sed -i 's|Exec=/usr/share/code/code|Exec=/usr/share/code/code --no-sandbox|' /usr/share/applications/code.desktop && \
+    sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --no-sandbox|' /usr/share/applications/google-chrome.desktop
+
+# Add alias to /etc/bash.bashrc to include --no-sandbox
+RUN cat <<EOF >> /etc/bash.bashrc
+alias code='code --no-sandbox'
+alias google-chrome='google-chrome --no-sandbox'
+alias google-chrome-stable='google-chrome-stable --no-sandbox'
+EOF
+
+# Create a wrapper script for Google Chrome with --no-sandbox
+RUN echo -e '#!/bin/bash\nexec /usr/bin/google-chrome-stable --no-sandbox "$@"' > /usr/local/bin/google-chrome-stable-no-sandbox && \
+    chmod +x /usr/local/bin/google-chrome-stable-no-sandbox && \
+    # Set Google Chrome as the default browser with --no-sandbox
+    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
+    update-alternatives --set x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox && \
+    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
+    update-alternatives --set gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox
+
+# TurboVNC
+RUN wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.1.2/turbovnc_3.1.2_amd64.deb" \
+    -O /tmp/turbovnc_amd64.deb && \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    /tmp/turbovnc_amd64.deb \
+    && \
+    rm /tmp/turbovnc_amd64.deb && \
+    ln -s /opt/TurboVNC/bin/* /usr/local/bin/ && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Programming languages backends
+RUN \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    # Java
+    default-jdk default-jre \
+    # C, C++
+    build-essential \
+    gdb \
+    fpc-source \
+    # SQL
+    sqlite3 \
+    pdf2svg \
+    && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# MIT Scheme
+COPY mit-scheme/ /tmp/mit-scheme/
+RUN bash /tmp/mit-scheme/buildscript.sh
+
+# For installing some jupyter kernels
+RUN apt-get update --yes && \
+    apt-get install --yes --no-install-recommends libzmq3-dev
+
+# Maxima
+COPY maxima/ /tmp/maxima/
+RUN bash /tmp/maxima/buildscript.sh
+
+# A script to correct permissions after running certain commands
 COPY fix-permissions /usr/local/bin/fix-permissions
 RUN chmod a+rx /usr/local/bin/fix-permissions
-
-# Enable prompt color in the skeleton .bashrc before creating the default NB_USER
-# hadolint ignore=SC2016
-RUN sed -i 's/^#force_color_prompt=yes/force_color_prompt=yes/' /etc/skel/.bashrc && \
-   # Add call to conda init script see https://stackoverflow.com/a/58081608/4413446
-   echo 'eval "$(command conda shell.bash hook 2> /dev/null)"' >> /etc/skel/.bashrc
 
 # Create NB_USER with name jovyan user with UID=1000 and in the 'users' group
 # and make sure these dirs are writable by the `users` group.
@@ -88,452 +203,307 @@ RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
 
 USER ${NB_UID}
 
-# Pin python version here, or set it to "default"
+# Pin python version here, or leave it empty for the latest version
 ARG PYTHON_VERSION=3.11
 
-# Setup work directory for backward-compatibility
-RUN mkdir "/home/${NB_USER}/work" && \
-    fix-permissions "/home/${NB_USER}"
+# Pin micromamba version here, or leave it empty for the latest version
+ARG MICROMAMBA_VERSION=2.0.4
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
-#   Similar projects using Micromamba:
-#     - Micromamba-Docker: <https://github.com/mamba-org/micromamba-docker>
-#     - repo2docker: <https://github.com/jupyterhub/repo2docker>
 # Install Python, Mamba and jupyter_core
-# Cleanup temporary files and remove Micromamba
-# Correct permissions
-# Do all this in a single RUN command to avoid duplicating all of the
-# files across image layers when the permissions change
 COPY --chown="${NB_UID}:${NB_GID}" initial-condarc "${CONDA_DIR}/.condarc"
 WORKDIR /tmp
 RUN set -x && \
-    arch=$(uname -m) && \
-    if [ "${arch}" = "x86_64" ]; then \
-        # Should be simpler, see <https://github.com/mamba-org/mamba/issues/1437>
-        arch="64"; \
-    fi &&  \
-    wget --progress=dot:giga -O /tmp/micromamba.tar.bz2 \
-        "https://micromamba.snakepit.net/api/micromamba/linux-${arch}/latest" && \
-    tar -xvjf /tmp/micromamba.tar.bz2 --strip-components=1 bin/micromamba && \
-    rm /tmp/micromamba.tar.bz2 && \
-    PYTHON_SPECIFIER="python=${PYTHON_VERSION}" && \
-    if [[ "${PYTHON_VERSION}" == "default" ]]; then PYTHON_SPECIFIER="python"; fi && \
-    # Install the packages
-    ./micromamba install \
-        --root-prefix="${CONDA_DIR}" \
-        --prefix="${CONDA_DIR}" \
-        --yes \
+    # Computing artifact location
+    case "$(uname)" in \
+      Linux) \
+        PLATFORM="linux" ;; \
+      Darwin) \
+        PLATFORM="osx" ;; \
+      *NT*) \
+        PLATFORM="win" ;; \
+    esac && \
+    ARCH="$(uname -m)" && \
+    case "$ARCH" in \
+      aarch64|ppc64le|arm64) \
+          ;; \
+      *) \
+        ARCH="64" ;; \
+    esac && \
+    case "$PLATFORM-$ARCH" in \
+        linux-aarch64|linux-ppc64le|linux-64|osx-arm64|osx-64|win-64) \
+            ;; \
+        *) \
+        echo "Failed to detect your OS" >&2 && \
+        exit 1 ;; \
+    esac && \
+    if [ "${MICROMAMBA_VERSION:-}" = "" ]; then \
+        RELEASE_URL="https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-${PLATFORM}-${ARCH}" ; \
+    else \
+        RELEASE_URL="https://github.com/mamba-org/micromamba-releases/releases/download/${MICROMAMBA_VERSION}/micromamba-${PLATFORM}-${ARCH}" ; \
+    fi && \
+    BIN_FOLDER="${CONDA_DIR}/bin" && \
+    mkdir -p "${BIN_FOLDER}" && \
+    curl "${RELEASE_URL}" -o "${BIN_FOLDER}/mamba" -fsSL --compressed && \
+    chmod +x "${BIN_FOLDER}/mamba"
+
+USER root
+
+# Set MAMBA_ROOT_PREFIX environment variable for the Docker build process and runtime
+ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
+
+# Enable prompt color in the skeleton .bashrc before creating the default NB_USER
+# hadolint ignore=SC2016
+RUN sed -i 's/^#force_color_prompt=yes/force_color_prompt=yes/' /etc/skel/.bashrc && \
+    cat /etc/skel/.bashrc >> /etc/bash.bashrc
+
+# Add call to micromamba init script
+RUN cat <<'EOF' >> /etc/bash.bashrc
+eval "$(mamba shell hook --shell bash)"
+alias conda="mamba"
+EOF
+
+USER ${NB_UID}
+
+RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTHON_SPECIFIER="python=${PYTHON_VERSION}"; fi && \
+        mamba install --yes \
         "${PYTHON_SPECIFIER}" \
-        'mamba' \
-        'jupyter_core' && \
-    rm micromamba && \
-    # Pin major.minor version of python
-    mamba list python | grep '^python ' | tr -s ' ' | cut -d ' ' -f 1,2 >> "${CONDA_DIR}/conda-meta/pinned" && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}" && \
-    fix-permissions "/home/${NB_USER}"
+        && \
+        # Pin major.minor version of python
+        mamba list python | sed 's/^[[:space:]]*//' | grep '^python ' | tr -s ' ' | cut -d ' ' -f 1,2 >> "${CONDA_DIR}/conda-meta/pinned" && \
+        mamba clean --all -f -y && \
+        fix-permissions "${CONDA_DIR}" && \
+        fix-permissions "/home/${NB_USER}"
 
-# ------------------------------------
-# Copyright (c) Jupyter Development Team.
-# Distributed under the terms of the Modified BSD License.
+# # Tensorflow
+# RUN pip install --quiet --no-cache-dir \
+#     'tensorflow[and-cuda]==2.18.*' \
+#     && \
+#     fix-permissions "${CONDA_DIR}"
 
-USER root
-
-# Install all OS dependencies for notebook server that starts but lacks all
-# features (e.g., download as all possible file formats)
-RUN \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    fonts-liberation \
-    # - pandoc is used to convert notebooks to html files
-    #   it's not present in aarch64 ubuntu image, so we install it here
-    pandoc \
-    # - run-one - a wrapper script that runs no more
-    #   than one unique  instance  of  some  command with a unique set of arguments,
-    #   we use `run-one-constantly` to support `RESTARTABLE` option
-    run-one 
-    # && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Install all OS dependencies for fully functional notebook server
-RUN apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    # Common useful utilities
-    git \
-    nano-tiny \
-    tzdata \
-    unzip \
-    vim-tiny \
-    # git-over-ssh
-    openssh-client \
-    # nbconvert dependencies
-    # https://nbconvert.readthedocs.io/en/latest/install.html#installing-tex
-    texlive-xetex \
-    texlive-fonts-recommended \
-    texlive-plain-generic \
-    # Enable clipboard on Linux host systems
-    xclip
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
-
-### Desktop ###
-RUN \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    emacs \    
-    thonny \
-    dbus-x11 \
-    libgl1-mesa-glx \
-    xfce4 \
-    xfce4-panel \
-    xfce4-session \
-    xfce4-settings \
-    xorg \
-    xubuntu-icon-theme
-
-# Xpra
-RUN \
-    # wget -O "/usr/share/keyrings/xpra.asc" https://xpra.org/xpra.asc && \
-    # wget -O "/etc/apt/sources.list.d/xpra.sources" https://raw.githubusercontent.com/Xpra-org/xpra/master/packaging/repos/jammy/xpra.sources && \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    # xpra \
-    # xpra-x11 \
-    # xpra-html5 \
-    x11-utils \
-    xfonts-base \
-    xvfb \
-    # python3-websockify python3-dbus python3-paramiko python3-pyinotify python3-netifaces \
-    # && \
-    # /usr/bin/pip3 install --quiet --no-cache-dir \
-    # 'pyxdg==0.28' \
-    ;
-
-# fix https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=908156
-# RUN mkdir -p /run/xpra && \
-#     mkdir -p /run/user/${NB_UID}/xpra && \
-#     # fix permission for NB_USER to start xpra and create sockets under /run
-#     chmod -R 700 /run/user && \
-#     chmod -R 775 /run/xpra && \
-#     chown -R ${NB_USER}:${NB_GID} /run
-
-# latex dependencies for mystmd
-RUN \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    latexmk \
-    biber \
-    lmodern \
-    && \
-    paperconfig -p a4 \
-    # && \
-    # tlmgr option repository http://ftp.math.utah.edu/pub/tex/historic/systems/texlive/2021/tlnet-final \
-    # && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
-    ;
-
-
-
-# Programming languages backends
-RUN \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    # C, C++
-    build-essential \
-    unzip \
-    # python
-    # thonny \
-    # python3-dev \
-    gdb \
-    fpc-source \
-    # SQL
-    sqlite3 \
-    pdf2svg
-    # && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# JAVA
-RUN \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    default-jdk default-jre
-
-USER ${NB_UID}
-
-# ----------------------------------------------------------
-
-### Tensorflow ###
-# minor issues: 
-# https://stackoverflow.com/questions/44232898/memoryerror-in-tensorflow-and-successful-numa-node-read-from-sysfs-had-negativ
-# tested with:
-# https://docs.vmware.com/en/VMware-vSphere-Bitfusion/4.0/Example-Guide/GUID-8F6BF9A8-DC1A-4ACD-A2FF-C9CD0B50A9DC.html
-
-RUN pip install --quiet \
-    # --no-cache-dir \
-    'tensorflow==2.15.*' \
-    'tensorflowjs==4.15.*' \
-    # downgraded protobuf
-    # 'tensorflow-datasets==4.9.*' \
-    'tensorflow-addons==0.23.*' \
-    && \
-    fix-permissions "${CONDA_DIR}"
-
-### Pytorch ###
-RUN mamba install --quiet --yes \
-    'pytorch=2.1.*' \
-    'torchvision=0.16.*' \
-    'torchaudio=2.1.*' \
-    'pytorch-cuda=11.8' \
-    -c pytorch -c nvidia \
-    && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
-# https://github.com/Kaggle/docker-python/issues/1267
-RUN mamba install --quiet --yes \
-    openssh && \
-    # mamba install --quiet --yes -c intel intel-extension-for-pytorch && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
-# Install Jupyter Notebook, Lab, and Hub
-
-RUN mamba install --yes \
-    # code-server requirement
-    'nodejs<19' \
-    'notebook==7.1.1' \
-    'jupyterlab==4.1.2' \
-    'jupyterhub==4.0.2' \
-    && \
-    jupyter notebook --generate-config && \
-    # mamba clean --all -f -y && \
-    # npm cache clean --force && \
-    # jupyter lab clean && \
-    rm -rf "/home/${NB_USER}/.cache/yarn" && \
-    fix-permissions "${CONDA_DIR}" && \
-    fix-permissions "/home/${NB_USER}"
-
-USER root
-
-ENV JUPYTER_PORT=8888
-EXPOSE $JUPYTER_PORT
-
-ENV TZ=Hongkong
-
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
-
-# fix https://github.com/jupyter/docker-stacks/issues/815
-RUN cat /etc/skel/.bashrc >> /etc/bash.bashrc
-
-
-### code-server ###
-RUN apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    curl \
-    && \
-    wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.21.2 && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
-    fix-permissions "${HOME}" && \
-    fix-permissions /usr/lib/code-server/ && \
-    rm -rf ~/.cache/code-server/ && \
-    rm -rf /tmp/install.sh    
-
-
-
-
-
-
-USER ${NB_UID}
-
-RUN mamba install --quiet --yes \
-    # 'code-server=4.17.1' \
-    'websockify=0.11.*' \
-    'jupyter-vscode-proxy=0.5' \
-    'jupytext=1.16.*' \
-    'nbgitpuller=1.2.*' \
-    'black=23.12.*' \
-    'jupyterlab_code_formatter=2.2.*' \
-    'python-lsp-server=1.9.*' \
-    'jupyter-resource-usage==1.0.*' \
-    # 'openai=0.28.*' \
-    # 'jupyter-ai=2.2.*' \
-    && \
-    pip install --quiet --no-cache-dir \
-    'jupyterlab-git==0.50.*' \    
-    'jupyterlab_filesystem_access==0.5.*' \
-    'jupyter-www-proxy' \
+# PyTorch
+RUN mamba install --quiet --yes -c pytorch \
+    'pytorch-cuda=12.4' \
+    'pytorch=2.5.*' \
+    'torchvision=0.20.*' \
+    'torchaudio=2.5.*' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
-
-USER ${NB_USER}
-
-# Programming languages frontends
-RUN npm install -g npm@10.4.0 && \
-    npm \
-    # Javascript and Typescript
-    install -g tslab && \
-    tslab install --sys-prefix \
+# Install Jupyter Notebook, Lab, and Hub
+RUN \
+    mamba install --yes --quiet \
+    # code-server requirement
+    'nodejs==22.11.*' \
+    'notebook==7.2.*' \
+    'jupyterlab==4.2.*' \
+    'jupyterhub==5.2.*' \
     && \
+    # jupyter notebook --generate-config && \
+    mamba clean --all -f -y && \
+    npm cache clean --force && \
+    jupyter lab clean && \
+    fix-permissions "${CONDA_DIR}" && \
+    fix-permissions "/home/${NB_USER}"
+
+ENV JUPYTER_PORT=8888
+EXPOSE $JUPYTER_PORT
+
+USER root
+
+# Maxima kernel
+COPY --chown=${NB_USER}:${NB_GID} quicklisp /tmp/quicklisp
+RUN mkdir -p /opt/quicklisp && chown -R ${NB_USER} $_ && fix-permissions $_ && \
+    mv /tmp/quicklisp/sbclrc /etc/
+    
+USER ${NB_USER}
+RUN bash /tmp/quicklisp/buildscript.sh
+
+USER root
+
+### code-server ###
+RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
+    sh /tmp/install.sh --version 4.95.3 && \
+    fix-permissions "${HOME}" && \
+    fix-permissions /usr/lib/code-server/ && \
+    rm -rf ~/.cache/code-server/ && \
+    rm -rf /tmp/install.sh
+
+USER ${NB_UID}
+
+# Programming languages support
+RUN \
     mamba install --quiet --yes \
-    # 'graphviz=9.0.*' \
-    # 'xeus-python' \
     # C, C++
     'xeus-cling=0.15.*' \
-    # # LaTeX
-    # 'tectonic=0.14.*' \
-    # 'texlab=5.7.*' \
-    # 'chktex=1.7.*' \
-    # # Java
-    # 'openjdk=20.0.*' \
+    # Java
+    # 'openjdk=22.0.*' \
+    # Documentations
+    'jupyterlab-myst=2.4.*' \
+    'jupyterlite=0.4.*' \
+    'nbdev=2.3.*' \
+    'jupyterlite-sphinx=0.16.*' \ 
     && \
-    npm install -g \
-    bash-language-server \
-    vscode-css-languageserver-bin \
-    dockerfile-language-server-nodejs \
-    vscode-html-languageserver-bin \
-    javascript-typescript-langserver \
-    vscode-json-languageserver-bin \
-    yaml-language-server \
+    pip install --quiet --no-cache-dir \
+    'calysto-scheme==1.4.*' \
+    # Documentations
+    'jupyterlab-quarto==0.3.*' \
     && \
-    pip install --quiet \
-    # --no-cache-dir \
-    'itikz==0.1.*' \
-    && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}" && \
+    # scheme kernel
+    python -m calysto_scheme install --sys-prefix && \
     # Java kernel
     wget 'https://github.com/SpencerPark/IJava/releases/download/v1.3.0/ijava-1.3.0.zip' \
     -O /tmp/ijava.zip && \
     unzip /tmp/ijava.zip -d /tmp/ijava && \
     python /tmp/ijava/install.py --sys-prefix && \
-    rm -rf /tmp/ijava
-
-RUN mamba install --quiet --yes \
-    # 'manim=0.18.*' \
-    # 'manimpango=0.5.*' \
-    'pandas=2.1.*' \
-    'pyarrow=15.0.*' \
-    'matplotlib-base=3.8.*' \
-    'ipympl=0.9.*' \
-    'sympy=1.*' \
-    'jupyterlite=0.2.*' \
+    rm -rf /tmp/ijava \
     && \
-    pip install --quiet --no-cache-dir \
-    'divewidgets' \
-    'jupyterlab-myst==2.1.*' \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}" && \
+    npm cache clean --force
+
+# Other packages needed by the course
+RUN mamba install --quiet --yes \
+    'manim=0.18.*' \
+    'manimpango=0.5.*' \
+    'pandas=2.2.*' \
+    'matplotlib-base=3.9.*' \
+    'ipympl=0.9.*' \
+    'sympy=1.13.*' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
-# Nbgrader
-RUN pip install --quiet --no-cache-dir \
-    # 'nbgrader==0.9.*' && \
-    git+https://github.com/jupyter/nbgrader.git@refs/pull/1864/head && \
-    fix-permissions "${CONDA_DIR}"
-
-# MyST Markdown CLI
-RUN npm install -g mystmd
-
-# # Collaboration
-# RUN mamba install --quiet --yes \
-#     'jupyter-collaboration=1.1.*' \
-#     && \
-#     # mamba clean --all -f -y && \
-#     fix-permissions "${CONDA_DIR}"
-
-
-# AI
-RUN pip install --quiet --no-cache-dir \
-    'jupyter_ai' \
-    'openai' \
-    && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
-# Data mining
-
 RUN mamba install --quiet --yes \
+    'websockify=0.11.*' \
+    'jupyter-vscode-proxy=0.6' \
+    'jupytext=1.16.*' \
+    'black=24.10.*' \
+    'jupyterlab_code_formatter=3.0.*' \
+    'jupyterlab-lsp=5.1.*' \
+    'python-lsp-server=1.11.*' \
+    'jupyter-resource-usage=1.1.*' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'nbgitpuller==1.2.*' \
+    'jupyterlab-git==0.50.*' \    
+    # 'jupyterlab_filesystem_access==0.6.*' \
+    'jupyter-www-proxy' \
+    && \
+    # See https://jupyterlab-lsp.readthedocs.io/en/latest/Language%20Servers.html#example-getting-all-the-node-js-based-language-servers
+    npm install -g --save-dev  \
+    bash-language-server \
+    dockerfile-language-server-nodejs \
+    pyright \
+    sql-language-server \
+    typescript-language-server \
+    unified-language-server \
+    vscode-css-languageserver-bin \
+    vscode-html-languageserver-bin \
+    vscode-json-languageserver-bin \
+    yaml-language-server \
+    && \
+    npm cache clean --force && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+# Documentations with MyST
+RUN \
+    npm install -g \
+    mystmd \
+    && \
+    npm cache clean --force
+
+
+RUN pip install --quiet --no-cache-dir \
+    'jupyter-remote-desktop-proxy==2.0.*' \
+    # git+https://github.com/b-data/jupyter-remote-desktop-proxy.git@QGIS \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+
+
+# Support virtual environments in jupyter notebook
+RUN mamba install --quiet --yes \
+    'ipykernel=6.29.*' \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
+    
+# AI
+# Langchain: https://python.langchain.com/docs/how_to/installation/
+# TorchTune: https://github.com/pytorch/torchtune
+RUN mamba install --quiet --yes \
+    'langchain=0.3.*' \
+    'langchain-openai=0.2.*' \
+    'langchain-community=0.3.*' \
+    \
+    'tiktoken=0.8.*' \
+    'ollama=0.1.*' \
+    'git-lfs=3.5.*' \
+    'transformers=4.46.*' \
+    'accelerate=1.1.*' \
+    'evaluate=0.4.*' \
+    'bitsandbytes==0.44.*' \
+    \
+    'nvitop=1.3.*' \
+    'gpustat=1.1.*' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'torchtune==0.3.*' \
+    # 'chromadb==0.5.*' \
+    # 'flax==0.10.*' \
+    # 'tensorflow-datasets==4.9.*' \
+    # 'tensorflow-hub==0.16.*' \
+    # 'tensorflowjs==4.22.*' \
+    # 'tensorflow-decision-forests==1.11.*' \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}" && \
+    cd ${CONDA_DIR}/lib/python3.11/site-packages/bitsandbytes/ && \
+    ln -s libbitsandbytes_cuda120.so libbitsandbytes_cuda124.so
+
+    RUN mamba install --quiet --yes \
     altair \
     bokeh \
     bottleneck \
     blas \
     cython \
     h5py \
-    matplotlib-base \
     numba \
     patsy \
-    pytables \
+    ## conflicts with pytorch cuda version
+    # pytables \
     seaborn \
+    scikit-learn \
     sqlalchemy \
     statsmodels \
     xlrd \
     && \
     pip install --quiet --no-cache-dir \
-    'nvitop' \
-    'gpustat' \
-    'jdc' \
-    'jupyterlab-tensorboard-pro' && \
-    # mamba clean --all -f -y && \
+    tables \
+    && \
+    mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
-
-
-
-USER root
-
-# Maxima
-COPY maxima/ /tmp/maxima/
-RUN bash /tmp/maxima/buildscript.sh
-
-COPY --chown=${NB_USER}:${NB_GID} quicklisp /tmp/quicklisp
-RUN apt-get update --yes && \
-    apt-get install --yes --no-install-recommends libzmq3-dev && \
-    mkdir -p /opt/quicklisp && chown -R ${NB_USER} $_ && fix-permissions $_ && \
-    mv /tmp/quicklisp/sbclrc /etc/
-    
-USER ${NB_USER}
-RUN bash /tmp/quicklisp/buildscript.sh
-
-# conflict with jupyter-ai due to protobuf downgrade
-# Also read buffer timeout
-#
-# RUN apt-get update --yes && \
-#     apt-get install --yes --no-install-recommends \
-#     gnupg && \
-#     wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null && \
-#     echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | tee /etc/apt/sources.list.d/oneAPI.list && \
-#     apt-get update --yes && \
-#     apt-get install --yes --no-install-recommends \
-#     intel-basekit
 
 # WEKA
 
 USER root
 
 ### Weka and python-weka-wrapper ###
-RUN wget -q -O /tmp/weka.deb 'https://www.cs.waikato.ac.nz/~ml/weka/snapshots/stable-3-8.deb' && \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    # java
-    # openjdk-11-jre \
-    # openjdk-11-jdk \
-    # python3-dev \
-    # imagemagick \
-    /tmp/weka.deb \
-    && \
-    echo 'alias weka="/usr/bin/weka-stable-gui"' >> /etc/bash.bashrc && \
-    rm /tmp/weka.deb
-    # && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN wget -q -O /tmp/weka.zip 'https://sourceforge.net/projects/weka/files/weka-3-8/3.8.6/weka-3-8-6-azul-zulu-linux.zip' && \
+    unzip /tmp/weka.zip -d /opt && \
+    rm /tmp/weka.zip && \
+    echo 'alias weka="/opt/weka-3-8-6/weka.sh"' >> /etc/bash.bashrc
 
 RUN apt-get update --yes && \
-    # wget -q https://download1.rstudio.org/electron/jammy/amd64/rstudio-2023.12.0-369-amd64.deb -O /tmp/rstudio.deb && \
     apt-get install --yes --no-install-recommends \
-    'r-base'
+    'r-base' && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+    # wget -q https://download1.rstudio.org/electron/jammy/amd64/rstudio-2023.12.0-369-amd64.deb -O /tmp/rstudio.deb && \
     # /tmp/rstudio.deb && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/* && \
     # rm /tmp/rstudio.deb
 
 RUN R -e "install.packages('IRkernel', dependencies=TRUE, repos='http://cran.rstudio.com/')" && \
@@ -541,27 +511,15 @@ RUN R -e "install.packages('IRkernel', dependencies=TRUE, repos='http://cran.rst
     R -e "install.packages('cluster', dependencies=TRUE, repos='http://cran.rstudio.com/')" && \
     R -e "install.packages('dbscan', dependencies=TRUE, repos='http://cran.rstudio.com/')"
 
-# Desktop
-RUN wget -q "https://sourceforge.net/projects/turbovnc/files/3.1/turbovnc_3.1_amd64.deb/download" \
-    -O /tmp/turbovnc_amd64.deb && \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    /tmp/turbovnc_amd64.deb \
-    && \
-    rm /tmp/turbovnc_amd64.deb && \
-    ln -s /opt/TurboVNC/bin/* /usr/local/bin/
-    # && \
-    # apt-get clean && rm -rf /var/lib/apt/lists/*
-
 USER ${NB_USER}
 
-RUN pip install --quiet --no-cache-dir \
-    # 'jupyter-remote-desktop-proxy==1.1.*' \
-    git+https://github.com/b-data/jupyter-remote-desktop-proxy.git \
-    # 'jupyter-xprahtml5-proxy==0.3.*' \
-    && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
+# RUN pip install --quiet --no-cache-dir \
+#     # 'jupyter-remote-desktop-proxy==1.1.*' \
+#     git+https://github.com/b-data/jupyter-remote-desktop-proxy.git \
+#     # 'jupyter-xprahtml5-proxy==0.3.*' \
+#     && \
+#     # mamba clean --all -f -y && \
+#     fix-permissions "${CONDA_DIR}"
 
 # R
 RUN R -e "IRkernel::installspec(sys_prefix = TRUE)"
@@ -569,77 +527,60 @@ RUN R -e "IRkernel::installspec(sys_prefix = TRUE)"
 # Data mining packages
 RUN \
     mamba install --quiet --yes \
-    'scikit-learn=1.4.*' \
-    'anaconda::graphviz=2.50.*' \
+    'pillow=11.0.*' \
+    'pygraphviz=1.*' \
     'voila=0.5.*' \    
     'biopython=1.*' \
     'pyyaml=6.0.*' \
     && \
     pip install --quiet --no-cache-dir -U \
-    'dit==1.5.*' \
-    # needed for nbgrader    
-    'tornado==6.4.*' \
+    'python-weka-wrapper3[plots,graphs]' \
+    # 'dit==1.*' \
     && \
-    # mamba clean --all -f -y && \
+    mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
+# # For Weka in Python
+# RUN cat <<EOF > /tmp/weka.yaml && mamba env create -p "${CONDA_DIR}/envs/weka" -f /tmp/weka.yaml && rm /tmp/weka.yaml
+# dependencies:
+#   - python=3.10
+#   - pip
+#   - ipykernel
+#   - ipympl
+#   - pandas
+#   - pyarrow
+#   - numpy
+#   - matplotlib
+#   - scikit-learn
+#   - joblib
+#   - scipy
+#   - pip:
+#     - python-weka-wrapper3
+#     - python-javabridge
+#     - graphviz
+# EOF
 
+# RUN "${CONDA_DIR}/envs/weka/bin/python" -m ipykernel install \
+#     --prefix "${CONDA_DIR}" \
+#     --name weka --display-name "weka"  \
+#     && \
+#     # mamba clean --all -f -y && \
+#     fix-permissions "${CONDA_DIR}"
 
-# For Weka in Python
-RUN cat <<EOF > /tmp/weka.yaml && mamba env create -p "${CONDA_DIR}/envs/weka" -f /tmp/weka.yaml && rm /tmp/weka.yaml
-dependencies:
-  - python=3.10
-  - pip
-  - ipykernel
-  - ipympl
-  - pandas
-  - pyarrow
-  - numpy
-  - matplotlib
-  - scikit-learn
-  - joblib
-  - scipy
-  - pip:
-    - python-weka-wrapper3
-    - python-javabridge
-    - graphviz
-EOF
-
-RUN "${CONDA_DIR}/envs/weka/bin/python" -m ipykernel install \
-    --prefix "${CONDA_DIR}" \
-    --name weka --display-name "weka"  \
-    && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
+# Other UI enhancements
 RUN \
     mamba install --quiet --yes \
     'jupyter-archive=3.4.*' \
+    # && \
+    # pip install --quiet --no-cache-dir \
+    # 'jupyterlab-unfold==0.3.*' \
+    # 'jupyterlab-favorites==3.2.*' \
+    # 'jupyterlab-scenes==2.0.*' \
     && \
-    pip install --quiet --no-cache-dir \
-    'jupyterlab-unfold==0.3.*' \
-    'jupyterlab-favorites==3.2.*' \
-    'lckr_jupyterlab_variableinspector==3.2.*' \
-    && \
-    # mamba clean --all -f -y && \    
+    mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
 
-# Code extensions
-RUN for ext in \
-        ms-python.python \
-        ms-toolsai.jupyter \
-        ms-toolsai.vscode-jupyter-powertoys \
-        ms-python.black-formatter \
-        streetsidesoftware.code-spell-checker \
-        sugatoray.vscode-git-extension-pack \
-        Kelvin.vscode-sshfs \
-        hediet.vscode-drawio \
-        genieai.chatgpt-vscode \
-        ; do \
-        code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
-    done
-
-# themes
+# Themes
 RUN pip install --quiet --no-cache-dir \
     'jupyterlab_theme_solarized_dark' \
     'jupyterlab-night' \
@@ -654,34 +595,89 @@ RUN pip install --quiet --no-cache-dir \
     'jupyterlab-deck==0.2.*' && \
     fix-permissions "${CONDA_DIR}"
 
-COPY dive_ai-0.0.1-py3-none-any.whl /tmp/dive_ai-0.0.1-py3-none-any.whl
+# Copy local files as late as possible to avoid cache busting
+COPY start.sh /usr/local/bin/
+COPY start-notebook.sh start-singleuser.sh install-vscode-extension /usr/local/bin/
+# Currently need to have both jupyter_notebook_config and jupyter_server_config to support classic and lab
+COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 
-RUN \
-    pip install --quiet --no-cache-dir \
-    'dive_ai-0.0.1-py3-none-any.whl' && \
-    # mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
+# Code extensions
+RUN for ext in \
+        ms-python.python \
+        ms-python.pylint \
+        ms-toolsai.jupyter \
+        ms-toolsai.vscode-jupyter-powertoys \
+        ms-python.black-formatter \
+        streetsidesoftware.code-spell-checker@4.0.13 \
+        hediet.vscode-drawio \
+        eamodio.gitlens \
+        donjayamanne.githistory \
+        mhutchie.git-graph \
+        waderyan.gitblame \
+        codezombiech.gitignore \
+        ziyasal.vscode-open-in-github \
+        alefragnani.project-manager \
+        ziyasal.vscode-open-in-github \
+        ; do \
+        code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
+    done
 
+RUN for ext in \
+    GitHub.copilot-chat@0.22.4 \
+    GitHub.copilot@1.246.0 \
+    Continue.continue@0.8.60 \
+    ; do \
+    install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
+    done
 
-
-# ----------------------------------------------------------
-# Cleanup
-
+# Other Tools
 USER root
 
-RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN curl -L https://ollama.com/download/ollama-linux-amd64.tgz -o ollama-linux-amd64.tgz && \
+    tar -C /usr -xzf ollama-linux-amd64.tgz
 
-USER ${NB_UID}
+USER ${NB_USER}
 
-RUN npm cache clean --force && \
-    jupyter lab clean && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}" && \
-    fix-permissions "/home/${NB_USER}"
+RUN \
+    mamba install --quiet --yes \
+    'gh=2.63.*' \
+    'jupyter-ai=2.28.*' \
+    'r-languageserver' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'divewidgets' \
+    # 'nbgrader==0.9.*' \
+    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@895aa7ddf55fcdd85e1dd211636f161a6f3ddbe2' \
+    # 'vllm' \
+    'jdc' \
+    # 'jupyterlab-tensorboard-pro' \
+    && \
+    mamba clean --all -f -y && \    
+    fix-permissions "${CONDA_DIR}"
+
+# # # CUDA
+# # RUN MAMBA_NO_LOW_SPEED_LIMIT=1 mamba install --quiet --yes \
+# #     'cuda' \
+# #     && \
+# #     mamba clean --all -f -y && \
+# #     fix-permissions "${CONDA_DIR}"
+# #
+# # # MLC: https://llm.mlc.ai/docs/get_started/introduction.html
+# # # MLC Wasm: https://llm.mlc.ai/docs/install/emcc.html 
+# # RUN mamba install --quiet --yes \    
+# #     'cuda-nvcc=12.3.*' \
+# #     'emscripten=3.1.*' \
+# #     && \
+# #     pip install --quiet --no-cache-dir --pre -U -f https://mlc.ai/wheels mlc-ai-nightly-cu123 \
+# #     && \
+# #     pip install --quiet --no-cache-dir --pre -U -f https://mlc.ai/wheels mlc-llm-nightly-cu123 \
+# #     && \
+# #     mamba clean --all -f -y && \
+# #     fix-permissions "${CONDA_DIR}"
 
 # ----------------------------------------------------------
 
-FROM foundation as prod
+FROM foundation AS prod
 
 COPY --from=base /etc/ /etc/
 COPY --from=base /usr/ /usr/
@@ -689,44 +685,31 @@ COPY --from=base /var/ /var/
 COPY --from=base /home/ /home/
 COPY --from=base /opt/ /opt/
 
-USER root
+# set Mamba root prefix
+ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
 
 # Configure container startup
 ENTRYPOINT ["tini", "-g", "--"]
 # Configure container startup
 CMD ["start-notebook.sh"]
 
-# Copy local files as late as possible to avoid cache busting
-COPY start.sh /usr/local/bin/
-# Copy local files as late as possible to avoid cache busting
-COPY start-notebook.sh start-singleuser.sh install-vscode-extension /usr/local/bin/
-# Currently need to have both jupyter_notebook_config and jupyter_server_config to support classic and lab
-COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
+### Tensorflow
+# minor issues: 
+# https://github.com/tensorflow/tensorflow/issues/63109
 
-
-
-
-# customize xpra https://xpra.org/manual.html
-# COPY --chown=${NB_USER}:${NB_GID} jupyter_xprahtml5_proxy_init.py /tmp/
-# RUN mv /tmp/jupyter_xprahtml5_proxy_init.py "$(pip show jupyter-xprahtml5-proxy | grep Location | awk '{print $2}')/jupyter_xprahtml5_proxy/__init__.py"
-
-ENV TF_CPP_MIN_LOG_LEVEL=2
-
-ENV XLA_FLAGS=--xla_gpu_cuda_data_dir=${CONDA_DIR}/lib
-ENV LD_LIBRARY_PATH="/opt/conda/lib/:${CONDA_DIR}/lib/python3.11/site-packages/nvidia/cudnn/lib/"
+# ENV TF_CPP_MIN_LOG_LEVEL=2
 
 # https://github.com/tensorflow/tensorboard/pull/3674
 ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
 
+# NbGrader
 ENV NBGRADER_UID=2000 \
     NBGRADER_USER=nbgrader \
-    COURSE_ID=cs5483_23b
+    COURSE_ID=cs5483_24b
 
 # Create NBGRADER_USER with name nbgrader, UID=2000 and in the 'users' group
 # On jupyterhub, this user should be the owner of the course root and exchange folder for nbgrader.
 RUN useradd -l -M -s /bin/bash -N -u "${NBGRADER_UID}" "${NBGRADER_USER}"
-
-
 
 # Switch back to jovyan to avoid accidental container runs as root
 USER ${NB_UID}
@@ -741,30 +724,45 @@ RUN jupyter server extension disable --sys-prefix nbgrader.server_extensions.for
 
 COPY --chown=${NB_USER}:${NB_GID} nbgrader_config.py ${CONDA_DIR}/etc/jupyter/nbgrader_config.py
 
+COPY --chown="${NB_UID}:${NB_GID}" initial-condarc "${CONDA_DIR}/.condarc"
+COPY --chown="${NB_UID}:${NB_GID}" kernel.json "${CONDA_DIR}/share/jupyter/kernels/python3/kernel.json"
+
 # Disable news and update
 # See https://jupyterlab.readthedocs.io/en/stable/user/announcements.html
 RUN jupyter labextension disable "@jupyterlab/apputils-extension:announcements"
 
+USER ${NB_UID}
 
+RUN \
+    pip install --quiet --no-cache-dir \
+    'git+https://github.com/dive4dec/dive_ai@3b9e78f5adaa7c633c8eaf5c0ae392b1627683d6#subdirectory=dive_ai' && \
+    fix-permissions "${CONDA_DIR}"
+
+RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 
 WORKDIR "${HOME}"
 
-ENV JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64"
+# ENV JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64"
 
 
 # ----------------------------------------------------------
 
-FROM prod as collab
+FROM prod AS collab
 
 USER ${NB_USER}
 
 # Collaboration
-RUN mamba install --quiet --yes \
-    'jupyter-collaboration=1.2.*' \
+RUN \
+    mamba install --quiet --yes \
+    'jupyter-collaboration=3.0.*' \
+    # && \
+    # pip install --pre --quiet --no-cache-dir \
+    # 'jupyter-collaboration==3.0.1' \
+    # 'jupyterlab-chat==0.6.2' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
-FROM prod as default
+FROM prod AS default
 
 USER ${NB_USER}
