@@ -207,7 +207,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.11
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.0.4
+ARG MICROMAMBA_VERSION=2.0.4-0
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
