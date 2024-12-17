@@ -443,16 +443,19 @@ RUN mamba install --quiet --yes \
     'tiktoken=0.8.*' \
     'ollama=0.1.*' \
     'git-lfs=3.5.*' \
-    'transformers=4.46.*' \
-    'accelerate=1.1.*' \
-    'evaluate=0.4.*' \
-    'bitsandbytes==0.44.*' \
+    'transformers=4.47.*' \
+    'accelerate=1.2.*' \
+    'bitsandbytes=0.44.*' \
+    'datasets=3.2.0' \
     \
     'nvitop=1.3.*' \
     'gpustat=1.1.*' \
     && \
     pip install --quiet --no-cache-dir \
-    'torchtune==0.3.*' \
+    'torchtune==0.4.*' \
+    'evaluate==0.4.*' \
+    "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git" \
+    "xformers" \
     # 'chromadb==0.5.*' \
     # 'flax==0.10.*' \
     # 'tensorflow-datasets==4.9.*' \
