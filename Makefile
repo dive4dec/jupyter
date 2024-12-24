@@ -11,7 +11,7 @@
 cs1302nb := cs1302nb^0.1.11c
 cs1302nb_collab := $(cs1302nb)^collab
 cs1302nb_core := $(cs1302nb)^^core
-jhub := jhub^4.0.0c
+jhub := jhub^4.0.0e
 deephub := deephub^4.0.0a
 deepnb := deepnb^0.1.4e
 cs5483nb := cs5483nb^0.2.0e
