@@ -6,8 +6,8 @@ USER root
 RUN apt-get update && \
     apt-get upgrade --yes && \
     apt-get install --yes --no-install-recommends \
-    libnss-ldap \
-    libpam-ldap \
+    libnss-ldapd \
+    libpam-ldapd \
     libpam-radius-auth \
     ldap-utils \
     sudo \
