@@ -207,7 +207,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.11
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.0.4-0
+ARG MICROMAMBA_VERSION=2.0.5-0
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -295,13 +295,16 @@ RUN mamba install --quiet --yes -c pytorch \
 # Install Jupyter Notebook, Lab, and Hub
 RUN \
     mamba install --yes --quiet \
+    -c conda-forge/label/jupyterlab_alpha \
+    -c conda-forge/label/notebook_alpha \
     # code-server requirement
-    'nodejs==22.11.*' \
-    'notebook==7.2.*' \
-    'jupyterlab==4.2.*' \
+    'nodejs==22.12.*' \
+    'notebook==7.4.*' \
+    'jupyterlab==4.4.*' \
     'jupyterhub==5.2.*' \
     && \
-    # jupyter notebook --generate-config && \
+    npm install -g npm@latest \
+    && \
     mamba clean --all -f -y && \
     npm cache clean --force && \
     jupyter lab clean && \
@@ -325,7 +328,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.95.3 && \
+    sh /tmp/install.sh --version 4.96.2 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -385,6 +388,7 @@ RUN mamba install --quiet --yes \
     'jupyterlab-lsp=5.1.*' \
     'python-lsp-server=1.11.*' \
     'jupyter-resource-usage=1.1.*' \
+    'r-languageserver=0.3.*' \
     && \
     pip install --quiet --no-cache-dir \
     'nbgitpuller==1.2.*' \
@@ -624,9 +628,9 @@ RUN for ext in \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.22.4 \
-    GitHub.copilot@1.246.0 \
-    Continue.continue@0.8.60 \
+    GitHub.copilot-chat@0.23.2 \
+    GitHub.copilot@1.254.0 \
+    Continue.continue@0.8.66 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done
@@ -641,9 +645,8 @@ USER ${NB_USER}
 
 RUN \
     mamba install --quiet --yes \
-    'gh=2.63.*' \
+    'gh=2.64.*' \
     'jupyter-ai=2.28.*' \
-    'r-languageserver' \
     && \
     pip install --quiet --no-cache-dir \
     'divewidgets' \

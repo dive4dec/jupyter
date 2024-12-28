@@ -14,7 +14,7 @@ cs1302nb_core := $(cs1302nb)^^core
 jhub := jhub^4.0.0e
 deephub := deephub^4.0.0a
 deepnb := deepnb^0.1.4e
-cs5483nb := cs5483nb^0.2.0e
+cs5483nb := cs5483nb^0.2.0f
 cs5483nb_collab := $(cs5483nb)^collab
 deepnb_collab := $(deepnb)^collab
 #
