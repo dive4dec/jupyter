@@ -98,6 +98,8 @@ RUN \
 RUN \
     apt-get update --yes && \
     apt-get install --yes --no-install-recommends \
+    gpg \
+    software-properties-common \
     emacs \    
     thonny \
     dbus-x11 \
@@ -114,46 +116,47 @@ RUN \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install VS Code
-RUN wget -qO- https://go.microsoft.com/fwlink/?LinkID=760868 -O /tmp/vscode.deb && \
-    echo "code code/add-microsoft-repo boolean true" | sudo debconf-set-selections && \
+RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg && \
+    install -o root -g root -m 644 microsoft.gpg /etc/apt/trusted.gpg.d/ && \
+    sh -c 'echo "deb [arch=$(dpkg --print-architecture)] https://packages.microsoft.com/repos/vscode stable main" > /etc/apt/sources.list.d/vscode.list' && \
+    apt-get install -y apt-transport-https && \
     apt-get update --yes && \
-    apt-get install --yes --no-install-recommends gnupg /tmp/vscode.deb && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/vscode.deb
+    apt-get install --yes code && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* microsoft.gpg
 
-# Install Google Chrome
-RUN wget -qO- https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/google-chrome.deb && \
+
+# Install Firefox Nightly
+RUN add-apt-repository ppa:ubuntu-mozilla-daily/ppa && \
     apt-get update --yes && \
-    apt-get install --yes --no-install-recommends /tmp/google-chrome.deb && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/google-chrome.deb
+    apt-get install --yes firefox-trunk && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Modify code.desktop to include --no-sandbox
 RUN sed -i 's|Exec=/usr/share/code/code|Exec=/usr/share/code/code --no-sandbox|' /usr/share/applications/code.desktop && \
-    sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --no-sandbox|' /usr/share/applications/google-chrome.desktop
+    sed -i 's|Exec=firefox-trunk|Exec=firefox-trunk --no-sandbox|' /usr/share/applications/firefox-trunk.desktop
 
 # Add alias to /etc/bash.bashrc to include --no-sandbox
 RUN cat <<EOF >> /etc/bash.bashrc
 alias code='code --no-sandbox'
-alias google-chrome='google-chrome --no-sandbox'
-alias google-chrome-stable='google-chrome-stable --no-sandbox'
+alias firefox-trunk='firefox-trunk --no-sandbox'
+alias firefox='firefox-trunk --no-sandbox'
 EOF
 
-# Create a wrapper script for Google Chrome with --no-sandbox
-RUN echo -e '#!/bin/bash\nexec /usr/bin/google-chrome-stable --no-sandbox "$@"' > /usr/local/bin/google-chrome-stable-no-sandbox && \
-    chmod +x /usr/local/bin/google-chrome-stable-no-sandbox && \
-    # Set Google Chrome as the default browser with --no-sandbox
-    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
-    update-alternatives --set x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox && \
-    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
-    update-alternatives --set gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox
+# Create a wrapper script for Firefox nightly with --no-sandbox
+RUN echo -e '#!/bin/bash\nexec /usr/bin/firefox-trunk --no-sandbox "$@"' > /usr/local/bin/firefox-trunk-no-sandbox && \
+    chmod +x /usr/local/bin/firefox-trunk-no-sandbox && \
+    # Set Firefox nightly as the default browser with --no-sandbox
+    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/firefox-trunk-no-sandbox 200 && \
+    update-alternatives --set x-www-browser /usr/local/bin/firefox-trunk-no-sandbox && \
+    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/firefox-trunk-no-sandbox 200 && \
+    update-alternatives --set gnome-www-browser /usr/local/bin/firefox-trunk-no-sandbox
 
-# TurboVNC
-RUN wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.1.2/turbovnc_3.1.2_amd64.deb" \
-    -O /tmp/turbovnc_amd64.deb && \
+# Install TurboVNC based on the current architecture
+RUN ARCH=$(dpkg --print-architecture) && \
+    wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.1.3/turbovnc_3.1.3_${ARCH}.deb" -O /tmp/turbovnc.deb && \
     apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    /tmp/turbovnc_amd64.deb \
-    && \
-    rm /tmp/turbovnc_amd64.deb && \
+    apt-get install --yes --no-install-recommends /tmp/turbovnc.deb && \
+    rm /tmp/turbovnc.deb && \
     ln -s /opt/TurboVNC/bin/* /usr/local/bin/ && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -172,10 +175,6 @@ RUN \
     pdf2svg \
     && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# MIT Scheme
-COPY mit-scheme/ /tmp/mit-scheme/
-RUN bash /tmp/mit-scheme/buildscript.sh
 
 # For installing some jupyter kernels
 RUN apt-get update --yes && \
@@ -207,7 +206,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.11
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.0.5-0
+ARG MICROMAMBA_VERSION=2.0.4-0
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -283,8 +282,8 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
 #     fix-permissions "${CONDA_DIR}"
 
 # PyTorch
-RUN mamba install --quiet --yes -c pytorch \
-    'pytorch-cuda=12.4' \
+RUN mamba install --quiet --yes -c pytorch -c nvidia \
+    'pytorch-cuda<=12.4' \
     'pytorch=2.5.*' \
     'torchvision=0.20.*' \
     'torchaudio=2.5.*' \
@@ -295,16 +294,13 @@ RUN mamba install --quiet --yes -c pytorch \
 # Install Jupyter Notebook, Lab, and Hub
 RUN \
     mamba install --yes --quiet \
-    -c conda-forge/label/jupyterlab_alpha \
-    -c conda-forge/label/notebook_alpha \
     # code-server requirement
-    'nodejs==22.12.*' \
-    'notebook==7.4.*' \
-    'jupyterlab==4.4.*' \
+    'nodejs==22.11.*' \
+    'notebook==7.2.*' \
+    'jupyterlab==4.2.*' \
     'jupyterhub==5.2.*' \
     && \
-    npm install -g npm@latest \
-    && \
+    # jupyter notebook --generate-config && \
     mamba clean --all -f -y && \
     npm cache clean --force && \
     jupyter lab clean && \
@@ -328,7 +324,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.96.2 && \
+    sh /tmp/install.sh --version 4.95.3 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -337,10 +333,22 @@ RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
 USER ${NB_UID}
 
 # Programming languages support
+# C, C++
+RUN \
+    ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then \
+        mamba install --quiet --yes \
+        'xeus-cling<=0.15.*' \
+        && \
+        mamba clean --all -f -y && \
+        fix-permissions "${CONDA_DIR}"; \
+    else \
+        echo "Skip installation"; \
+    fi
+    
+
 RUN \
     mamba install --quiet --yes \
-    # C, C++
-    'xeus-cling=0.15.*' \
     # Java
     # 'openjdk=22.0.*' \
     # Documentations
@@ -388,7 +396,6 @@ RUN mamba install --quiet --yes \
     'jupyterlab-lsp=5.1.*' \
     'python-lsp-server=1.11.*' \
     'jupyter-resource-usage=1.1.*' \
-    'r-languageserver=0.3.*' \
     && \
     pip install --quiet --no-cache-dir \
     'nbgitpuller==1.2.*' \
@@ -445,11 +452,9 @@ RUN mamba install --quiet --yes \
     'langchain-community=0.3.*' \
     \
     'tiktoken=0.8.*' \
-    'ollama=0.1.*' \
     'git-lfs=3.5.*' \
     'transformers=4.47.*' \
     'accelerate=1.2.*' \
-    'bitsandbytes=0.44.*' \
     'datasets=3.2.0' \
     \
     'nvitop=1.3.*' \
@@ -458,8 +463,6 @@ RUN mamba install --quiet --yes \
     pip install --quiet --no-cache-dir \
     'torchtune==0.4.*' \
     'evaluate==0.4.*' \
-    "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git" \
-    "xformers" \
     # 'chromadb==0.5.*' \
     # 'flax==0.10.*' \
     # 'tensorflow-datasets==4.9.*' \
@@ -468,9 +471,24 @@ RUN mamba install --quiet --yes \
     # 'tensorflow-decision-forests==1.11.*' \
     && \
     mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}" && \
-    cd ${CONDA_DIR}/lib/python3.11/site-packages/bitsandbytes/ && \
-    ln -s libbitsandbytes_cuda120.so libbitsandbytes_cuda124.so
+    fix-permissions "${CONDA_DIR}"
+
+
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" != "arm64" ]; then \
+        mamba install --quiet --yes \
+        'ollama=0.1.*' \
+        'bitsandbytes=0.44.*' && \
+        pip install --quiet --no-cache-dir \
+        "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git" \
+        "xformers" && \
+        mamba clean --all -f -y && \
+        fix-permissions "${CONDA_DIR}" && \
+        cd ${CONDA_DIR}/lib/python3.11/site-packages/bitsandbytes/ && \
+        ln -s libbitsandbytes_cuda120.so libbitsandbytes_cuda124.so; \
+    else \
+        echo "Skipping installation on ARM architecture"; \
+    fi 
 
 RUN mamba install --quiet --yes \
     altair \
@@ -628,9 +646,9 @@ RUN for ext in \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.23.2 \
-    GitHub.copilot@1.254.0 \
-    Continue.continue@0.8.66 \
+    GitHub.copilot-chat@0.22.4 \
+    GitHub.copilot@1.246.0 \
+    Continue.continue@0.8.60 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done
@@ -638,20 +656,21 @@ RUN for ext in \
 # Other Tools
 USER root
 
-RUN curl -L https://ollama.com/download/ollama-linux-amd64.tgz -o ollama-linux-amd64.tgz && \
-    tar -C /usr -xzf ollama-linux-amd64.tgz
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -L https://ollama.com/download/ollama-linux-${ARCH}.tgz -o ollama-linux-${ARCH}.tgz && \
+    tar -C /usr -xzf ollama-linux-${ARCH}.tgz
 
 USER ${NB_USER}
 
 RUN \
     mamba install --quiet --yes \
-    'gh=2.64.*' \
+    'gh=2.63.*' \
     'jupyter-ai=2.28.*' \
     && \
     pip install --quiet --no-cache-dir \
     'divewidgets' \
     # 'nbgrader==0.9.*' \
-    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@895aa7ddf55fcdd85e1dd211636f161a6f3ddbe2' \
+    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@ff08ba3dc13ade375d43b51f561b10d37368ef6d' \
     # 'vllm' \
     'jdc' \
     # 'jupyterlab-tensorboard-pro' \
@@ -696,6 +715,9 @@ ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
 ENTRYPOINT ["tini", "-g", "--"]
 # Configure container startup
 CMD ["start-notebook.sh"]
+
+ENV JUPYTER_PORT=8888
+EXPOSE $JUPYTER_PORT
 
 ### Tensorflow
 # minor issues: 
