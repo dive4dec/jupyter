@@ -2,13 +2,6 @@ ARG ROOT_CONTAINER=ubuntu:24.04
 
 FROM $ROOT_CONTAINER AS foundation
 
-# Fix the UID conflict with user ubuntu when jovyan needs to be created later. 
-# See https://bugs.launchpad.net/cloud-images/+bug/2005129
-RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu
-
-# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
 # Avoid prompt for user input for installation of dependencies
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -27,6 +20,14 @@ ENV CONDA_DIR=/opt/conda \
     TZ=Asia/Hong_Kong
 ENV PATH="${CONDA_DIR}/bin:${PATH}" \
     HOME="/home/${NB_USER}"
+
+# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Fix the UID conflict with user ubuntu
+# See https://bugs.launchpad.net/cloud-images/+bug/2005129
+RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu && \
+    useradd -l -m -s /bin/bash -N -u "${NB_UID}" "${NB_USER}"
 
 USER root
 FROM foundation AS base
@@ -193,7 +194,6 @@ RUN chmod a+rx /usr/local/bin/fix-permissions
 RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
     sed -i.bak -e 's/^%admin/#%admin/' /etc/sudoers && \
     sed -i.bak -e 's/^%sudo/#%sudo/' /etc/sudoers && \
-    useradd -l -m -s /bin/bash -N -u "${NB_UID}" "${NB_USER}" && \
     mkdir -p "${CONDA_DIR}" && \
     chown "${NB_USER}:${NB_GID}" "${CONDA_DIR}" && \
     chmod g+w /etc/passwd && \
@@ -206,7 +206,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.11
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.0.4-0
+ARG MICROMAMBA_VERSION=2.0.5-0
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -324,7 +324,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.95.3 && \
+    sh /tmp/install.sh --version 4.96.2 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -646,9 +646,9 @@ RUN for ext in \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.22.4 \
-    GitHub.copilot@1.246.0 \
-    Continue.continue@0.8.60 \
+    GitHub.copilot-chat@0.23.2 \
+    GitHub.copilot@1.255.0 \
+    Continue.continue@0.8.66 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done
