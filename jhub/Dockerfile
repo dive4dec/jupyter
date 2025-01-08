@@ -2,19 +2,20 @@ ARG ROOT_CONTAINER=ubuntu:24.04
 
 FROM $ROOT_CONTAINER AS foundation
 
-# Fix the UID conflict with user ubuntu when jovyan needs to be created later. 
-# See https://bugs.launchpad.net/cloud-images/+bug/2005129
-RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu
-
-# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
 # Avoid prompt for user input for installation of dependencies
 ENV DEBIAN_FRONTEND=noninteractive
 
 ARG NB_USER="jovyan"
 ARG NB_UID="1000"
 ARG NB_GID="100"
+
+# Fix the UID conflict with user ubuntu
+# See https://bugs.launchpad.net/cloud-images/+bug/2005129
+RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu && \
+    useradd -l -m -s /bin/bash -N -u "${NB_UID}" "${NB_USER}"
+
+# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ENV CONDA_DIR=/opt/conda \
     SHELL=/bin/bash \
@@ -71,17 +72,16 @@ RUN apt-get update --yes && \
 COPY fix-permissions /usr/local/bin/fix-permissions
 RUN chmod a+rx /usr/local/bin/fix-permissions
 
-# Create NB_USER with name jovyan user with UID=1000 and in the 'users' group
-# and make sure these dirs are writable by the `users` group.
 RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
     sed -i.bak -e 's/^%admin/#%admin/' /etc/sudoers && \
     sed -i.bak -e 's/^%sudo/#%sudo/' /etc/sudoers && \
-    useradd -l -m -s /bin/bash -N -u "${NB_UID}" "${NB_USER}" && \
     mkdir -p "${CONDA_DIR}" && \
     chown "${NB_USER}:${NB_GID}" "${CONDA_DIR}" && \
     chmod g+w /etc/passwd && \
     fix-permissions "${HOME}" && \
     fix-permissions "${CONDA_DIR}"
+
+RUN mkdir -p /srv/jupyterhub && chown "${NB_UID}:${NB_GID}" /srv/jupyterhub
 
 USER ${NB_UID}
 
@@ -200,6 +200,7 @@ COPY --from=base /usr/ /usr/
 COPY --from=base /var/ /var/
 COPY --from=base /home/ /home/
 COPY --from=base /opt/ /opt/
+COPY --from=base /srv/ /srv/
 
 # set Mamba root prefix
 ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
@@ -225,9 +226,8 @@ COPY etc/nsswitch.conf /etc/nsswitch.conf
 COPY etc/pam_radius_auth.conf /etc/pam_radius_auth.conf
 COPY etc/pam.d /etc/pam.d
 
-WORKDIR /srv/jupyterhub
-RUN chown ${NB_USER}:${NB_GID} /srv/jupyterhub
 USER ${NB_USER}
+WORKDIR /srv/jupyterhub
 
 EXPOSE 8081
 ENTRYPOINT ["tini", "-g", "--"]
