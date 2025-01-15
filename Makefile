@@ -17,7 +17,7 @@ deepnb := deepnb^0.1.4e
 cs5483nb := cs5483nb^0.2.1a
 cs5483nb_collab := $(cs5483nb)^collab
 cs5483nb_core := $(cs5483nb)^^core
-cs5489nb := cs5489nb^0.1.0a
+cs5489nb := cs5489nb^0.1.0b
 cs5489nb_tf := $(cs5489nb)^^tf
 deepnb_collab := $(deepnb)^collab
 #
@@ -119,6 +119,8 @@ cd $(IMAGE_NAME) && docker buildx build . \
 --platform linux/amd64,linux/arm64 \
 $(if $(DOCKERFILE_SUFFIX),-f Dockerfile.$(DOCKERFILE_SUFFIX)) \
 $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
+--cache-from=type=registry,ref=$(FULL_IMAGE_NAME):cache \
+--cache-to=type=registry,ref=$(FULL_IMAGE_NAME):cache,mode=max \
 -t "$(FULL_IMAGE_NAME):$(IMAGE_TAG)" \
 --push
 endef

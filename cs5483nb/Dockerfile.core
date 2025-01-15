@@ -74,25 +74,25 @@ RUN apt-get update --yes && \
     openssh-client \
     # nbconvert dependencies
     # See https://nbconvert.readthedocs.io/en/latest/install.html#installing-tex
-    texlive-xetex \
-    texlive-fonts-recommended \
-    texlive-plain-generic \
-    dvisvgm \
+    # texlive-xetex \
+    # texlive-fonts-recommended \
+    # texlive-plain-generic \
+    # dvisvgm \
     # Enable clipboard on Linux host systems
     xclip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Dependencies for mystmd
-RUN \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    latexmk \
-    biber \
-    lmodern \
-    && \
-    paperconfig -p a4 \
-    && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# # Dependencies for mystmd
+# RUN \
+#     apt-get update --yes && \
+#     apt-get install --yes --no-install-recommends \
+#     latexmk \
+#     biber \
+#     lmodern \
+#     && \
+#     paperconfig -p a4 \
+#     && \
+#     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 
 # Desktop
@@ -177,13 +177,13 @@ RUN \
     && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# For installing some jupyter kernels
-RUN apt-get update --yes && \
-    apt-get install --yes --no-install-recommends libzmq3-dev
+# # For installing some jupyter kernels
+# RUN apt-get update --yes && \
+#     apt-get install --yes --no-install-recommends libzmq3-dev
 
-# Maxima
-COPY maxima/ /tmp/maxima/
-RUN bash /tmp/maxima/buildscript.sh
+# # Maxima
+# COPY maxima/ /tmp/maxima/
+# RUN bash /tmp/maxima/buildscript.sh
 
 # A script to correct permissions after running certain commands
 COPY fix-permissions /usr/local/bin/fix-permissions
@@ -281,15 +281,15 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
 #     && \
 #     fix-permissions "${CONDA_DIR}"
 
-# PyTorch
-RUN mamba install --quiet --yes -c pytorch -c nvidia \
-    'pytorch-cuda<=12.4' \
-    'pytorch=2.5.*' \
-    'torchvision=0.20.*' \
-    'torchaudio=2.5.*' \
-    && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
+# # PyTorch
+# RUN mamba install --quiet --yes -c pytorch -c nvidia \
+#     'pytorch-cuda<=12.4' \
+#     'pytorch=2.5.*' \
+#     'torchvision=0.20.*' \
+#     'torchaudio=2.5.*' \
+#     && \
+#     mamba clean --all -f -y && \
+#     fix-permissions "${CONDA_DIR}"
 
 # Install Jupyter Notebook, Lab, and Hub
 RUN \
@@ -312,15 +312,15 @@ EXPOSE $JUPYTER_PORT
 
 USER root
 
-# Maxima kernel
-COPY --chown=${NB_USER}:${NB_GID} quicklisp /tmp/quicklisp
-RUN mkdir -p /opt/quicklisp && chown -R ${NB_USER} $_ && fix-permissions $_ && \
-    mv /tmp/quicklisp/sbclrc /etc/
+# # Maxima kernel
+# COPY --chown=${NB_USER}:${NB_GID} quicklisp /tmp/quicklisp
+# RUN mkdir -p /opt/quicklisp && chown -R ${NB_USER} $_ && fix-permissions $_ && \
+#     mv /tmp/quicklisp/sbclrc /etc/
     
-USER ${NB_USER}
-RUN bash /tmp/quicklisp/buildscript.sh
+# USER ${NB_USER}
+# RUN bash /tmp/quicklisp/buildscript.sh
 
-USER root
+# USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
@@ -332,19 +332,19 @@ RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
 
 USER ${NB_UID}
 
-# Programming languages support
-# C, C++
-RUN \
-    ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" = "amd64" ]; then \
-        mamba install --quiet --yes \
-        'xeus-cling<=0.15.*' \
-        && \
-        mamba clean --all -f -y && \
-        fix-permissions "${CONDA_DIR}"; \
-    else \
-        echo "Skip installation"; \
-    fi
+# # Programming languages support
+# # C, C++
+# RUN \
+#     ARCH=$(dpkg --print-architecture) && \
+#     if [ "$ARCH" = "amd64" ]; then \
+#         mamba install --quiet --yes \
+#         'xeus-cling<=0.15.*' \
+#         && \
+#         mamba clean --all -f -y && \
+#         fix-permissions "${CONDA_DIR}"; \
+#     else \
+#         echo "Skip installation"; \
+#     fi
     
 
 RUN \
@@ -358,19 +358,19 @@ RUN \
     'jupyterlite-sphinx=0.16.*' \ 
     && \
     pip install --quiet --no-cache-dir \
-    'calysto-scheme==1.4.*' \
+    # 'calysto-scheme==1.4.*' \
     # Documentations
     'jupyterlab-quarto==0.3.*' \
     && \
     # scheme kernel
-    python -m calysto_scheme install --sys-prefix && \
+    # python -m calysto_scheme install --sys-prefix && \
     # Java kernel
-    wget 'https://github.com/SpencerPark/IJava/releases/download/v1.3.0/ijava-1.3.0.zip' \
-    -O /tmp/ijava.zip && \
-    unzip /tmp/ijava.zip -d /tmp/ijava && \
-    python /tmp/ijava/install.py --sys-prefix && \
-    rm -rf /tmp/ijava \
-    && \
+    # wget 'https://github.com/SpencerPark/IJava/releases/download/v1.3.0/ijava-1.3.0.zip' \
+    # -O /tmp/ijava.zip && \
+    # unzip /tmp/ijava.zip -d /tmp/ijava && \
+    # python /tmp/ijava/install.py --sys-prefix && \
+    # rm -rf /tmp/ijava \
+    # && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}" && \
     npm cache clean --force
@@ -443,51 +443,51 @@ RUN mamba install --quiet --yes \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
     
-# AI
-# Langchain: https://python.langchain.com/docs/how_to/installation/
-# TorchTune: https://github.com/pytorch/torchtune
-RUN mamba install --quiet --yes \
-    'langchain=0.3.*' \
-    'langchain-openai=0.2.*' \
-    'langchain-community=0.3.*' \
-    \
-    'tiktoken=0.8.*' \
-    'git-lfs=3.5.*' \
-    'transformers=4.47.*' \
-    'accelerate=1.2.*' \
-    'datasets=3.2.0' \
-    \
-    'nvitop=1.3.*' \
-    'gpustat=1.1.*' \
-    && \
-    pip install --quiet --no-cache-dir \
-    'torchtune==0.4.*' \
-    'evaluate==0.4.*' \
-    # 'chromadb==0.5.*' \
-    # 'flax==0.10.*' \
-    # 'tensorflow-datasets==4.9.*' \
-    # 'tensorflow-hub==0.16.*' \
-    # 'tensorflowjs==4.22.*' \
-    # 'tensorflow-decision-forests==1.11.*' \
-    && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
+# # AI
+# # Langchain: https://python.langchain.com/docs/how_to/installation/
+# # TorchTune: https://github.com/pytorch/torchtune
+# RUN mamba install --quiet --yes \
+#     'langchain=0.3.*' \
+#     'langchain-openai=0.2.*' \
+#     'langchain-community=0.3.*' \
+#     \
+#     'tiktoken=0.8.*' \
+#     'git-lfs=3.5.*' \
+#     'transformers=4.47.*' \
+#     'accelerate=1.2.*' \
+#     'datasets=3.2.0' \
+#     \
+#     'nvitop=1.3.*' \
+#     'gpustat=1.1.*' \
+#     && \
+#     pip install --quiet --no-cache-dir \
+#     'torchtune==0.4.*' \
+#     'evaluate==0.4.*' \
+#     # 'chromadb==0.5.*' \
+#     # 'flax==0.10.*' \
+#     # 'tensorflow-datasets==4.9.*' \
+#     # 'tensorflow-hub==0.16.*' \
+#     # 'tensorflowjs==4.22.*' \
+#     # 'tensorflow-decision-forests==1.11.*' \
+#     && \
+#     mamba clean --all -f -y && \
+#     fix-permissions "${CONDA_DIR}"
 
 
-RUN ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" != "arm64" ]; then \
-        mamba install --quiet --yes \
-        'bitsandbytes=0.44.*' && \
-        pip install --quiet --no-cache-dir \
-        "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git" \
-        "xformers" && \
-        mamba clean --all -f -y && \
-        fix-permissions "${CONDA_DIR}" && \
-        cd ${CONDA_DIR}/lib/python3.11/site-packages/bitsandbytes/ && \
-        ln -s libbitsandbytes_cuda120.so libbitsandbytes_cuda124.so; \
-    else \
-        echo "Skipping installation on ARM architecture"; \
-    fi 
+# RUN ARCH=$(dpkg --print-architecture) && \
+#     if [ "$ARCH" != "arm64" ]; then \
+#         mamba install --quiet --yes \
+#         'bitsandbytes=0.44.*' && \
+#         pip install --quiet --no-cache-dir \
+#         "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git" \
+#         "xformers" && \
+#         mamba clean --all -f -y && \
+#         fix-permissions "${CONDA_DIR}" && \
+#         cd ${CONDA_DIR}/lib/python3.11/site-packages/bitsandbytes/ && \
+#         ln -s libbitsandbytes_cuda120.so libbitsandbytes_cuda124.so; \
+#     else \
+#         echo "Skipping installation on ARM architecture"; \
+#     fi 
 
 RUN mamba install --quiet --yes \
     altair \
