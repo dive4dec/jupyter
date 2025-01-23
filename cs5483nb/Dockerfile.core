@@ -530,10 +530,10 @@ RUN apt-get update --yes && \
     # /tmp/rstudio.deb && \
     # rm /tmp/rstudio.deb
 
-RUN R -e "install.packages('IRkernel', dependencies=TRUE, repos='http://cran.rstudio.com/')" && \
-    R -e "install.packages('ClusterR', dependencies=TRUE, repos='http://cran.rstudio.com/')" && \
-    R -e "install.packages('cluster', dependencies=TRUE, repos='http://cran.rstudio.com/')" && \
-    R -e "install.packages('dbscan', dependencies=TRUE, repos='http://cran.rstudio.com/')"
+# RUN R -e "install.packages('IRkernel', dependencies=TRUE, repos='http://cran.rstudio.com/')" && \
+#     R -e "install.packages('ClusterR', dependencies=TRUE, repos='http://cran.rstudio.com/')" && \
+#     R -e "install.packages('cluster', dependencies=TRUE, repos='http://cran.rstudio.com/')" && \
+#     R -e "install.packages('dbscan', dependencies=TRUE, repos='http://cran.rstudio.com/')"
 
 USER ${NB_USER}
 
@@ -545,8 +545,8 @@ USER ${NB_USER}
 #     # mamba clean --all -f -y && \
 #     fix-permissions "${CONDA_DIR}"
 
-# R
-RUN R -e "IRkernel::installspec(sys_prefix = TRUE)"
+# # R
+# RUN R -e "IRkernel::installspec(sys_prefix = TRUE)"
 
 # Data mining packages
 RUN \
@@ -623,6 +623,8 @@ COPY start-notebook.sh start-singleuser.sh install-vscode-extension /usr/local/b
 # Currently need to have both jupyter_notebook_config and jupyter_server_config to support classic and lab
 COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 
+COPY vscode-reveal-4.3.3.vsix /tmp/vscode-reveal-4.3.3.vsix
+
 # Code extensions
 RUN for ext in \
         ms-python.python \
@@ -640,6 +642,7 @@ RUN for ext in \
         ziyasal.vscode-open-in-github \
         alefragnani.project-manager \
         ziyasal.vscode-open-in-github \
+        /tmp/vscode-reveal-4.3.3.vsix \
         ; do \
         code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
     done
