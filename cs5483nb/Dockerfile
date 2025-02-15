@@ -295,7 +295,7 @@ RUN mamba install --quiet --yes -c pytorch -c nvidia \
 RUN \
     mamba install --yes --quiet \
     # code-server requirement
-    'nodejs==22.11.*' \
+    'nodejs==22.12.*' \
     'notebook==7.2.*' \
     'jupyterlab==4.2.*' \
     'jupyterhub==5.2.*' \
@@ -324,7 +324,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.96.2 && \
+    sh /tmp/install.sh --version 4.96.4 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -377,10 +377,10 @@ RUN \
 
 # Other packages needed by the course
 RUN mamba install --quiet --yes \
-    'manim=0.18.*' \
-    'manimpango=0.5.*' \
+    'manim=0.19.*' \
+    'manimpango=0.6.*' \
     'pandas=2.2.*' \
-    'matplotlib-base=3.9.*' \
+    'matplotlib-base=3.10.*' \
     'ipympl=0.9.*' \
     'sympy=1.13.*' \
     && \
@@ -396,10 +396,10 @@ RUN mamba install --quiet --yes \
     'jupyterlab-lsp=5.1.*' \
     'python-lsp-server=1.11.*' \
     'jupyter-resource-usage=1.1.*' \
+    'nbgitpuller==1.2.*' \
+    'jupyterlab-git==0.51.*' \
     && \
     pip install --quiet --no-cache-dir \
-    'nbgitpuller==1.2.*' \
-    'jupyterlab-git==0.50.*' \    
     # 'jupyterlab_filesystem_access==0.6.*' \
     'jupyter-www-proxy' \
     && \
@@ -623,6 +623,8 @@ COPY start-notebook.sh start-singleuser.sh install-vscode-extension /usr/local/b
 # Currently need to have both jupyter_notebook_config and jupyter_server_config to support classic and lab
 COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 
+COPY vscode-reveal-4.3.3.vsix /tmp/vscode-reveal-4.3.3.vsix
+
 # Code extensions
 RUN for ext in \
         ms-python.python \
@@ -640,22 +642,25 @@ RUN for ext in \
         ziyasal.vscode-open-in-github \
         alefragnani.project-manager \
         ziyasal.vscode-open-in-github \
+        /tmp/vscode-reveal-4.3.3.vsix \
         ; do \
         code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
     done
 
 RUN for ext in \
     GitHub.copilot-chat@0.23.2 \
-    GitHub.copilot@1.255.0 \
-    Continue.continue@0.8.66 \
+    GitHub.copilot@1.265.0 \
+    Continue.continue@0.8.68 \
+    henoc.svgeditor@2.9.0 \
+    ms-vsliveshare.vsliveshare@1.0.5857 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done
 
 RUN \
     mamba install --quiet --yes \
-    'gh=2.63.*' \
-    'jupyter-ai=2.28.*' \
+    'gh=2.67.*' \
+    'jupyter-ai=2.29.*' \
     && \
     pip install --quiet --no-cache-dir \
     'divewidgets' \

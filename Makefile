@@ -14,7 +14,7 @@ cs1302nb_core := $(cs1302nb)^^core
 jhub := jhub^4.0.0f
 deephub := deephub^4.0.0a
 deepnb := deepnb^0.1.4e
-cs5483nb := cs5483nb^0.2.1a
+cs5483nb := cs5483nb^0.2.2a
 cs5483nb_collab := $(cs5483nb)^collab
 cs5483nb_core := $(cs5483nb)^^core
 cs5489nb := cs5489nb^0.1.0b
@@ -119,8 +119,8 @@ cd $(IMAGE_NAME) && docker buildx build . \
 --platform linux/amd64,linux/arm64 \
 $(if $(DOCKERFILE_SUFFIX),-f Dockerfile.$(DOCKERFILE_SUFFIX)) \
 $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
---cache-from=type=registry,ref=$(FULL_IMAGE_NAME):cache \
---cache-to=type=registry,ref=$(FULL_IMAGE_NAME):cache,mode=max \
+--cache-from=type=registry,ref=$(FULL_IMAGE_NAME):cache1 \
+--cache-to=type=registry,ref=$(FULL_IMAGE_NAME):cache1,mode=max \
 -t "$(FULL_IMAGE_NAME):$(IMAGE_TAG)" \
 --push
 endef
