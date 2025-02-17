@@ -350,7 +350,8 @@ RUN \
 RUN \
     mamba install --quiet --yes \
     # Java
-    # 'openjdk=22.0.*' \
+    'openjdk=23.0.*' \
+    'ant=1.10.*' \
     # Documentations
     'jupyterlab-myst=2.4.*' \
     'jupyterlite=0.4.*' \
