@@ -682,6 +682,12 @@ RUN curl -fsSL https://ollama.com/install.sh | sh
     # curl -L https://ollama.com/download/ollama-linux-${ARCH}.tgz -o ollama-linux-${ARCH}.tgz && \
     # tar -C /usr -xzf ollama-linux-${ARCH}.tgz
 
+### MOA ###
+RUN wget -q -O /tmp/moa.zip 'https://github.com/Waikato/moa/releases/download/2024.07.0/moa-release-2024.07.0-bin.zip' && \
+    unzip /tmp/moa.zip -d /opt && \
+    rm /tmp/moa.zip && \
+    echo 'alias moa="/opt/moa-release-2024.07.0/bin/moa.sh"' >> /etc/bash.bashrc
+
 USER ${NB_USER}
 
 # # # CUDA
@@ -703,6 +709,22 @@ USER ${NB_USER}
 # #     && \
 # #     mamba clean --all -f -y && \
 # #     fix-permissions "${CONDA_DIR}"
+
+RUN \
+    mamba install --quiet --yes \
+    'marimo=0.11.*' \
+    'plotly=6.0.*' \
+    'sqlglot=26.0.*' \
+    'polars=1.22.*' \
+    'duckdb=1.2.0' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'git+https://github.com/dive4dec/jupyter-marimo-proxy@a493c16de8e47a29c8f82ff65b10ee9ae393606c' \
+    'kaleido==0.2.*' \
+    'capymoa==0.8.*' \
+    && \
+    mamba clean --all -f -y && \    
+    fix-permissions "${CONDA_DIR}"
 
 # ----------------------------------------------------------
 
@@ -775,7 +797,6 @@ RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 WORKDIR "${HOME}"
 
 # ENV JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64"
-
 
 # ----------------------------------------------------------
 
