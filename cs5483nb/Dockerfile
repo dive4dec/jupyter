@@ -324,7 +324,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.96.4 && \
+    sh /tmp/install.sh --version 4.97.2 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -649,8 +649,8 @@ RUN for ext in \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.23.2 \
-    GitHub.copilot@1.265.0 \
+    GitHub.copilot-chat@0.24.1 \
+    GitHub.copilot@1.275.0 \
     Continue.continue@0.8.68 \
     henoc.svgeditor@2.9.0 \
     ms-vsliveshare.vsliveshare@1.0.5857 \
@@ -712,8 +712,8 @@ USER ${NB_USER}
 
 RUN \
     mamba install --quiet --yes \
-    'marimo=0.11.*' \
     'plotly=6.0.*' \
+    'marimo=0.11.*' \
     'sqlglot=26.0.*' \
     'polars=1.22.*' \
     'duckdb=1.2.0' \
