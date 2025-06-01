@@ -207,7 +207,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.11
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.0.4-0
+ARG MICROMAMBA_VERSION=2.1.1-0
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -296,10 +296,10 @@ RUN mamba install --quiet --yes -c pytorch \
 RUN \
     mamba install --yes --quiet \
     # code-server requirement
-    'nodejs==22.11.*' \
-    'notebook==7.2.*' \
-    'jupyterlab==4.2.*' \
-    'jupyterhub==5.2.*' \
+    'nodejs==22.13.*' \
+    'jupyterlab==4.4.*' \
+    'notebook==7.4.*' \
+    'jupyterhub==5.3.*' \
     && \
     # jupyter notebook --generate-config && \
     mamba clean --all -f -y && \
@@ -325,7 +325,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.95.3 && \
+    sh /tmp/install.sh --version 4.100.2 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -337,14 +337,16 @@ USER ${NB_UID}
 RUN \
     mamba install --quiet --yes \
     # C, C++
-    'xeus-cling=0.15.*' \
+    'xeus-cpp=0.7.*' \
+    'xtensor=0.26.*' \
+    # 'xeus-cling=0.15.*' \
     # Java
     # 'openjdk=22.0.*' \
     # Documentations
     'jupyterlab-myst=2.4.*' \
-    'jupyterlite=0.4.*' \
+    'jupyterlite=0.5.*' \
     'nbdev=2.3.*' \
-    'jupyterlite-sphinx=0.16.*' \ 
+    'jupyterlite-sphinx=0.20.*' \ 
     && \
     pip install --quiet --no-cache-dir \
     'calysto-scheme==1.4.*' \
@@ -366,29 +368,29 @@ RUN \
 
 # Other packages needed by the course
 RUN mamba install --quiet --yes \
-    'manim=0.18.*' \
-    'manimpango=0.5.*' \
+    'manim=0.19.*' \
+    'manimpango=0.6.*' \
     'pandas=2.2.*' \
-    'matplotlib-base=3.9.*' \
+    'matplotlib-base=3.10.*' \
     'ipympl=0.9.*' \
-    'sympy=1.13.*' \
+    'sympy=1.14.*' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
 RUN mamba install --quiet --yes \
-    'websockify=0.11.*' \
+    'websockify=0.13.*' \
     'jupyter-vscode-proxy=0.6' \
-    'jupytext=1.16.*' \
-    'black=24.10.*' \
+    'jupytext=1.17.*' \
+    'black=25.1.*' \
     'jupyterlab_code_formatter=3.0.*' \
     'jupyterlab-lsp=5.1.*' \
-    'python-lsp-server=1.11.*' \
+    'python-lsp-server=1.12.*' \
     'jupyter-resource-usage=1.1.*' \
     && \
     pip install --quiet --no-cache-dir \
     'nbgitpuller==1.2.*' \
-    'jupyterlab-git==0.50.*' \    
+    'jupyterlab-git==0.51.*' \    
     # 'jupyterlab_filesystem_access==0.6.*' \
     'jupyter-www-proxy' \
     && \
@@ -418,7 +420,7 @@ RUN \
 
 
 RUN pip install --quiet --no-cache-dir \
-    'jupyter-remote-desktop-proxy==2.0.*' \
+    'jupyter-remote-desktop-proxy==3.0.*' \
     # git+https://github.com/b-data/jupyter-remote-desktop-proxy.git@QGIS \
     && \
     mamba clean --all -f -y && \
@@ -437,22 +439,22 @@ RUN mamba install --quiet --yes \
 # TorchTune: https://github.com/pytorch/torchtune
 RUN mamba install --quiet --yes \
     'langchain=0.3.*' \
-    'langchain-openai=0.2.*' \
+    'langchain-openai=0.3.*' \
     'langchain-community=0.3.*' \
     \
-    'tiktoken=0.8.*' \
-    'ollama=0.1.*' \
-    'git-lfs=3.5.*' \
-    'transformers=4.46.*' \
-    'accelerate=1.1.*' \
+    'tiktoken=0.9.*' \
+    'ollama=0.6.*' \
+    'git-lfs=3.6.*' \
+    'transformers=4.51.*' \
+    'accelerate=1.7.*' \
     'evaluate=0.4.*' \
-    'bitsandbytes==0.44.*' \
+    'bitsandbytes==0.45.*' \
     \
-    'nvitop=1.3.*' \
+    'nvitop=1.5.*' \
     'gpustat=1.1.*' \
     && \
     pip install --quiet --no-cache-dir \
-    'torchtune==0.3.*' \
+    'torchtune==0.6.*' \
     # 'chromadb==0.5.*' \
     # 'flax==0.10.*' \
     # 'tensorflow-datasets==4.9.*' \
@@ -527,7 +529,7 @@ RUN for ext in \
         ms-toolsai.jupyter \
         ms-toolsai.vscode-jupyter-powertoys \
         ms-python.black-formatter \
-        streetsidesoftware.code-spell-checker@4.0.13 \
+        streetsidesoftware.code-spell-checker@4.1.0 \
         hediet.vscode-drawio \
         eamodio.gitlens \
         donjayamanne.githistory \
@@ -537,14 +539,16 @@ RUN for ext in \
         ziyasal.vscode-open-in-github \
         alefragnani.project-manager \
         ziyasal.vscode-open-in-github \
+        marimo-team.vscode-marimo \
         ; do \
         code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.22.2 \
-    GitHub.copilot@1.243.0 \
-    Continue.continue@0.8.55 \
+    GitHub.copilot-chat@0.27.2 \
+    GitHub.copilot@1.326.0 \
+    Continue.continue@1.0.10 \
+    ms-vsliveshare.vsliveshare@1.0.5857 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done
@@ -559,8 +563,8 @@ USER ${NB_USER}
 
 RUN \
     mamba install --quiet --yes \
-    'gh=2.63.*' \
-    'jupyter-ai=2.28.*' \
+    'gh=2.74.*' \
+    'jupyter-ai=2.31.*' \
     && \
     pip install --quiet --no-cache-dir \
     'divewidgets' \
@@ -593,6 +597,21 @@ RUN \
 # #     mamba clean --all -f -y && \
 # #     fix-permissions "${CONDA_DIR}"
 
+RUN \
+    mamba install --quiet --yes \
+    'plotly=6.1.*' \
+    'marimo=0.13.*' \
+    'sqlglot=26.12.*' \
+    'polars=1.29.*' \
+    'duckdb=1.2.*' \
+    && \
+    pip install --quiet --no-cache-dir \
+    'git+https://github.com/dive4dec/jupyter-marimo-proxy@a493c16de8e47a29c8f82ff65b10ee9ae393606c' \
+    'kaleido==0.2.*' \
+    # 'capymoa==0.8.*' \
+    && \
+    mamba clean --all -f -y && \    
+    fix-permissions "${CONDA_DIR}"
 # ----------------------------------------------------------
 
 FROM foundation AS prod
@@ -657,6 +676,9 @@ RUN \
     fix-permissions "${CONDA_DIR}"
 
 RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
+
+# Add C++ include path
+ENV CPLUS_INCLUDE_PATH="${CONDA_DIR}/include"
 
 WORKDIR "${HOME}"
 
