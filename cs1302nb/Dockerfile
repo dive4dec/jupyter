@@ -204,7 +204,7 @@ RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
 USER ${NB_UID}
 
 # Pin python version here, or leave it empty for the latest version
-ARG PYTHON_VERSION=3.11
+ARG PYTHON_VERSION=3.12
 
 # Pin micromamba version here, or leave it empty for the latest version
 ARG MICROMAMBA_VERSION=2.1.1-0
@@ -283,13 +283,16 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
 #     fix-permissions "${CONDA_DIR}"
 
 # PyTorch
-RUN mamba install --quiet --yes -c pytorch \
-    'pytorch-cuda=12.4' \
-    'pytorch=2.5.*' \
-    'torchvision=0.20.*' \
-    'torchaudio=2.5.*' \
-    && \
-    mamba clean --all -f -y && \
+RUN \
+    # mamba install --quiet --yes -c pytorch \
+    # 'pytorch-cuda=12.4' \
+    # 'pytorch=2.5.*' \
+    # 'torchvision=0.20.*' \
+    # 'torchaudio=2.5.*' \
+    # && \
+    # mamba clean --all -f -y && \
+    pip install --quiet --no-cache-dir \
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 && \
     fix-permissions "${CONDA_DIR}"
 
 # Install Jupyter Notebook, Lab, and Hub
@@ -443,17 +446,17 @@ RUN mamba install --quiet --yes \
     'langchain-community=0.3.*' \
     \
     'tiktoken=0.9.*' \
-    'ollama=0.6.*' \
+    'ollama=0.9.*' \
     'git-lfs=3.6.*' \
-    'transformers=4.51.*' \
-    'accelerate=1.7.*' \
+    'transformers=4.52.*' \
+    # 'accelerate=1.7.*' \
     'evaluate=0.4.*' \
-    'bitsandbytes==0.45.*' \
     \
     'nvitop=1.5.*' \
     'gpustat=1.1.*' \
     && \
     pip install --quiet --no-cache-dir \
+    'bitsandbytes==0.46.*' \
     'torchtune==0.6.*' \
     # 'chromadb==0.5.*' \
     # 'flax==0.10.*' \
@@ -463,9 +466,20 @@ RUN mamba install --quiet --yes \
     # 'tensorflow-decision-forests==1.11.*' \
     && \
     mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}" && \
-    cd ${CONDA_DIR}/lib/python3.11/site-packages/bitsandbytes/ && \
-    ln -s libbitsandbytes_cuda120.so libbitsandbytes_cuda124.so
+    fix-permissions "${CONDA_DIR}"
+    #  && \
+    # cd ${CONDA_DIR}/lib/python3.11/site-packages/bitsandbytes/ && \
+    # ln -s libbitsandbytes_cuda120.so libbitsandbytes_cuda124.so
+
+RUN \
+    pip install --quiet --no-cache-dir \
+    --no-build-isolation \
+    'optimum==1.25.*' \
+    # 'auto-gptq==0.7.*' \
+    'gptqmodel==2.2.*' \
+    && \
+    fix-permissions "${CONDA_DIR}"
+
 
 RUN mamba install --quiet --yes \
     altair \
@@ -601,9 +615,9 @@ RUN \
     mamba install --quiet --yes \
     'plotly=6.1.*' \
     'marimo=0.13.*' \
-    'sqlglot=26.12.*' \
-    'polars=1.29.*' \
-    'duckdb=1.2.*' \
+    'sqlglot=26.22.*' \
+    'polars=1.30.*' \
+    'duckdb=1.3.*' \
     && \
     pip install --quiet --no-cache-dir \
     'git+https://github.com/dive4dec/jupyter-marimo-proxy@a493c16de8e47a29c8f82ff65b10ee9ae393606c' \
@@ -691,7 +705,7 @@ USER ${NB_USER}
 # Collaboration
 RUN \
     mamba install --quiet --yes \
-    'jupyter-collaboration=3.0.*' \
+    'jupyter-collaboration=4.0.*' \
     # && \
     # pip install --pre --quiet --no-cache-dir \
     # 'jupyter-collaboration==3.0.1' \
