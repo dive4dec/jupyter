@@ -2,13 +2,6 @@ ARG ROOT_CONTAINER=ubuntu:24.04
 
 FROM $ROOT_CONTAINER AS foundation
 
-# Fix the UID conflict with user ubuntu when jovyan needs to be created later. 
-# See https://bugs.launchpad.net/cloud-images/+bug/2005129
-RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu
-
-# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
 # Avoid prompt for user input for installation of dependencies
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -27,6 +20,14 @@ ENV CONDA_DIR=/opt/conda \
     TZ=Asia/Hong_Kong
 ENV PATH="${CONDA_DIR}/bin:${PATH}" \
     HOME="/home/${NB_USER}"
+
+# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Fix the UID conflict with user ubuntu
+# See https://bugs.launchpad.net/cloud-images/+bug/2005129
+RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu && \
+    useradd -l -m -s /bin/bash -N -u "${NB_UID}" "${NB_USER}"
 
 USER root
 FROM foundation AS base
@@ -98,6 +99,8 @@ RUN \
 RUN \
     apt-get update --yes && \
     apt-get install --yes --no-install-recommends \
+    gpg \
+    software-properties-common \
     emacs \    
     thonny \
     dbus-x11 \
@@ -114,11 +117,20 @@ RUN \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install VS Code
-RUN wget -qO- https://go.microsoft.com/fwlink/?LinkID=760868 -O /tmp/vscode.deb && \
-    echo "code code/add-microsoft-repo boolean true" | sudo debconf-set-selections && \
+RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg && \
+    install -o root -g root -m 644 microsoft.gpg /etc/apt/trusted.gpg.d/ && \
+    sh -c 'echo "deb [arch=$(dpkg --print-architecture)] https://packages.microsoft.com/repos/vscode stable main" > /etc/apt/sources.list.d/vscode.list' && \
+    apt-get install -y apt-transport-https && \
     apt-get update --yes && \
-    apt-get install --yes --no-install-recommends gnupg /tmp/vscode.deb && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/vscode.deb
+    apt-get install --yes code && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* microsoft.gpg
+
+
+# Install Firefox Nightly
+RUN add-apt-repository ppa:ubuntu-mozilla-daily/ppa && \
+    apt-get update --yes && \
+    apt-get install --yes firefox-trunk && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome
 RUN wget -qO- https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/google-chrome.deb && \
@@ -128,32 +140,42 @@ RUN wget -qO- https://dl.google.com/linux/direct/google-chrome-stable_current_am
 
 # Modify code.desktop to include --no-sandbox
 RUN sed -i 's|Exec=/usr/share/code/code|Exec=/usr/share/code/code --no-sandbox|' /usr/share/applications/code.desktop && \
+    sed -i 's|Exec=firefox-trunk|Exec=firefox-trunk --no-sandbox|' /usr/share/applications/firefox-trunk.desktop && \
     sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --no-sandbox|' /usr/share/applications/google-chrome.desktop
 
 # Add alias to /etc/bash.bashrc to include --no-sandbox
 RUN cat <<EOF >> /etc/bash.bashrc
 alias code='code --no-sandbox'
+alias firefox-trunk='firefox-trunk --no-sandbox'
+alias firefox='firefox-trunk --no-sandbox'
 alias google-chrome='google-chrome --no-sandbox'
 alias google-chrome-stable='google-chrome-stable --no-sandbox'
 EOF
 
-# Create a wrapper script for Google Chrome with --no-sandbox
-RUN echo -e '#!/bin/bash\nexec /usr/bin/google-chrome-stable --no-sandbox "$@"' > /usr/local/bin/google-chrome-stable-no-sandbox && \
-    chmod +x /usr/local/bin/google-chrome-stable-no-sandbox && \
-    # Set Google Chrome as the default browser with --no-sandbox
-    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
-    update-alternatives --set x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox && \
-    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
-    update-alternatives --set gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox
+# # Create a wrapper script for Google Chrome with --no-sandbox
+# RUN echo -e '#!/bin/bash\nexec /usr/bin/google-chrome-stable --no-sandbox "$@"' > /usr/local/bin/google-chrome-stable-no-sandbox && \
+#     chmod +x /usr/local/bin/google-chrome-stable-no-sandbox && \
+#     # Set Google Chrome as the default browser with --no-sandbox
+#     update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
+#     update-alternatives --set x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox && \
+#     update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
+#     update-alternatives --set gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox
 
-# TurboVNC
-RUN wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.1.2/turbovnc_3.1.2_amd64.deb" \
-    -O /tmp/turbovnc_amd64.deb && \
+# Create a wrapper script for Firefox nightly with --no-sandbox
+RUN echo -e '#!/bin/bash\nexec /usr/bin/firefox-trunk --no-sandbox "$@"' > /usr/local/bin/firefox-trunk-no-sandbox && \
+    chmod +x /usr/local/bin/firefox-trunk-no-sandbox && \
+    # Set Firefox nightly as the default browser with --no-sandbox
+    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/firefox-trunk-no-sandbox 200 && \
+    update-alternatives --set x-www-browser /usr/local/bin/firefox-trunk-no-sandbox && \
+    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/firefox-trunk-no-sandbox 200 && \
+    update-alternatives --set gnome-www-browser /usr/local/bin/firefox-trunk-no-sandbox
+
+# Install TurboVNC based on the current architecture
+RUN ARCH=$(dpkg --print-architecture) && \
+    wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.2/turbovnc_3.2_${ARCH}.deb" -O /tmp/turbovnc.deb && \
     apt-get update --yes && \
-    apt-get install --yes --no-install-recommends \
-    /tmp/turbovnc_amd64.deb \
-    && \
-    rm /tmp/turbovnc_amd64.deb && \
+    apt-get install --yes --no-install-recommends /tmp/turbovnc.deb && \
+    rm /tmp/turbovnc.deb && \
     ln -s /opt/TurboVNC/bin/* /usr/local/bin/ && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -189,12 +211,10 @@ RUN bash /tmp/maxima/buildscript.sh
 COPY fix-permissions /usr/local/bin/fix-permissions
 RUN chmod a+rx /usr/local/bin/fix-permissions
 
-# Create NB_USER with name jovyan user with UID=1000 and in the 'users' group
-# and make sure these dirs are writable by the `users` group.
+# Make sure these dirs are writable by the `users` group.
 RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
     sed -i.bak -e 's/^%admin/#%admin/' /etc/sudoers && \
     sed -i.bak -e 's/^%sudo/#%sudo/' /etc/sudoers && \
-    useradd -l -m -s /bin/bash -N -u "${NB_UID}" "${NB_USER}" && \
     mkdir -p "${CONDA_DIR}" && \
     chown "${NB_USER}:${NB_GID}" "${CONDA_DIR}" && \
     chmod g+w /etc/passwd && \
@@ -283,15 +303,7 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
 #     fix-permissions "${CONDA_DIR}"
 
 # PyTorch
-RUN \
-    # mamba install --quiet --yes -c pytorch \
-    # 'pytorch-cuda=12.4' \
-    # 'pytorch=2.5.*' \
-    # 'torchvision=0.20.*' \
-    # 'torchaudio=2.5.*' \
-    # && \
-    # mamba clean --all -f -y && \
-    pip install --quiet --no-cache-dir \
+RUN pip install --quiet --no-cache-dir \
     torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 && \
     fix-permissions "${CONDA_DIR}"
 
@@ -328,7 +340,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.100.2 && \
+    sh /tmp/install.sh --version 4.100.3 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -342,9 +354,9 @@ RUN \
     # C, C++
     'xeus-cpp=0.7.*' \
     'xtensor=0.26.*' \
-    # 'xeus-cling=0.15.*' \
     # Java
-    # 'openjdk=22.0.*' \
+    'openjdk=23.0.*' \
+    'ant=1.10.*' \
     # Documentations
     'jupyterlab-myst=2.4.*' \
     'jupyterlite=0.5.*' \
@@ -390,10 +402,10 @@ RUN mamba install --quiet --yes \
     'jupyterlab-lsp=5.1.*' \
     'python-lsp-server=1.12.*' \
     'jupyter-resource-usage=1.1.*' \
+    'nbgitpuller==1.2.*' \
+    'jupyterlab-git==0.51.*' \
     && \
     pip install --quiet --no-cache-dir \
-    'nbgitpuller==1.2.*' \
-    'jupyterlab-git==0.51.*' \    
     # 'jupyterlab_filesystem_access==0.6.*' \
     'jupyter-www-proxy' \
     && \
@@ -446,7 +458,6 @@ RUN mamba install --quiet --yes \
     'langchain-community=0.3.*' \
     \
     'tiktoken=0.9.*' \
-    'ollama=0.9.*' \
     'git-lfs=3.6.*' \
     'transformers=4.52.*' \
     # 'accelerate=1.7.*' \
@@ -467,9 +478,6 @@ RUN mamba install --quiet --yes \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
-    #  && \
-    # cd ${CONDA_DIR}/lib/python3.11/site-packages/bitsandbytes/ && \
-    # ln -s libbitsandbytes_cuda120.so libbitsandbytes_cuda124.so
 
 RUN \
     pip install --quiet --no-cache-dir \
@@ -553,27 +561,18 @@ RUN for ext in \
         ziyasal.vscode-open-in-github \
         alefragnani.project-manager \
         ziyasal.vscode-open-in-github \
-        marimo-team.vscode-marimo \
         ; do \
         code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.27.2 \
+    GitHub.copilot-chat@0.27.3 \
     GitHub.copilot@1.326.0 \
-    Continue.continue@1.0.10 \
+    Continue.continue@1.0.11 \
     ms-vsliveshare.vsliveshare@1.0.5857 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done
-
-# Other Tools
-USER root
-
-RUN curl -L https://ollama.com/download/ollama-linux-amd64.tgz -o ollama-linux-amd64.tgz && \
-    tar -C /usr -xzf ollama-linux-amd64.tgz
-
-USER ${NB_USER}
 
 RUN \
     mamba install --quiet --yes \
@@ -583,7 +582,7 @@ RUN \
     pip install --quiet --no-cache-dir \
     'divewidgets' \
     # 'nbgrader==0.9.*' \
-    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@895aa7ddf55fcdd85e1dd211636f161a6f3ddbe2' \
+    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@ff08ba3dc13ade375d43b51f561b10d37368ef6d' \
     # 'vllm' \
     'jdc' \
     # 'jupyterlab-tensorboard-pro' \
@@ -591,6 +590,13 @@ RUN \
     mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
 
+    # Other Tools
+USER root
+
+RUN curl -fsSL https://ollama.com/install.sh | sh
+    # ARCH=$(dpkg --print-architecture) && \
+    # curl -L https://ollama.com/download/ollama-linux-${ARCH}.tgz -o ollama-linux-${ARCH}.tgz && \
+    # tar -C /usr -xzf ollama-linux-${ARCH}.tgz
 # # # CUDA
 # # RUN MAMBA_NO_LOW_SPEED_LIMIT=1 mamba install --quiet --yes \
 # #     'cuda' \
@@ -626,6 +632,7 @@ RUN \
     && \
     mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
+
 # ----------------------------------------------------------
 
 FROM foundation AS prod
@@ -644,6 +651,9 @@ ENTRYPOINT ["tini", "-g", "--"]
 # Configure container startup
 CMD ["start-notebook.sh"]
 
+ENV JUPYTER_PORT=8888
+EXPOSE $JUPYTER_PORT
+
 ### Tensorflow
 # minor issues: 
 # https://github.com/tensorflow/tensorflow/issues/63109
@@ -656,7 +666,7 @@ ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
 # NbGrader
 ENV NBGRADER_UID=2000 \
     NBGRADER_USER=nbgrader \
-    COURSE_ID=cs1302_24a
+    COURSE_ID=cs1302_25a
 
 # Create NBGRADER_USER with name nbgrader, UID=2000 and in the 'users' group
 # On jupyterhub, this user should be the owner of the course root and exchange folder for nbgrader.
