@@ -284,6 +284,16 @@ eval "$(mamba shell hook --shell bash)"
 alias conda="mamba"
 EOF
 
+# Install CUDA Toolkit
+RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-ubuntu2404.pin \
+    && mv cuda-ubuntu2404.pin /etc/apt/preferences.d/cuda-repository-pin-600 \
+    && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub \
+    && gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg 3bf863cc.pub \
+    && echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" > /etc/apt/sources.list.d/cuda.list \
+    && apt-get update \
+    && apt-get install --yes cuda-toolkit-12-8 \
+    && rm -rf /var/lib/apt/lists/* 3bf863cc.pub
+
 USER ${NB_UID}
 
 RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTHON_SPECIFIER="python=${PYTHON_VERSION}"; fi && \
@@ -296,15 +306,22 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
         fix-permissions "${CONDA_DIR}" && \
         fix-permissions "/home/${NB_USER}"
 
-# # Tensorflow
-# RUN pip install --quiet --no-cache-dir \
-#     'tensorflow[and-cuda]==2.18.*' \
-#     && \
-#     fix-permissions "${CONDA_DIR}"
+# Fix compatibility issues with AI tools
+RUN echo "packaging <25" >> "${CONDA_DIR}/conda-meta/pinned"
+
+# Tensorflow
+RUN pip install --quiet --no-cache-dir \
+    'tensorflow==2.19.*' \
+    && \
+    fix-permissions "${CONDA_DIR}"
 
 # PyTorch
 RUN pip install --quiet --no-cache-dir \
-    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 && \
+    'torch==2.7.*' \
+    'torchvision==0.22.*' \
+    'torchaudio==2.7.*' \
+    --index-url https://download.pytorch.org/whl/cu128 \
+    && \
     fix-permissions "${CONDA_DIR}"
 
 # Install Jupyter Notebook, Lab, and Hub
@@ -448,44 +465,56 @@ RUN mamba install --quiet --yes \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
-    
-# AI
-# Langchain: https://python.langchain.com/docs/how_to/installation/
-# TorchTune: https://github.com/pytorch/torchtune
+
+# # AI
 RUN mamba install --quiet --yes \
+    # See https://github.com/huggingface/transformers/issues/38442
+    'numpy<2.0.0' \
+    \
+    # Langchain: https://python.langchain.com/docs/how_to/installation/
     'langchain=0.3.*' \
     'langchain-openai=0.3.*' \
     'langchain-community=0.3.*' \
     \
-    'tiktoken=0.9.*' \
     'git-lfs=3.6.*' \
-    'transformers=4.52.*' \
-    # 'accelerate=1.7.*' \
-    'evaluate=0.4.*' \
     \
     'nvitop=1.5.*' \
     'gpustat=1.1.*' \
+    \
+    'pyarrow=20.0.*' \
+    'pypdf2=3.0.*' \
+    \
+    # See https://llm.mlc.ai/docs/install/emcc.html
+    'emscripten=3.1.*' \
     && \
     pip install --quiet --no-cache-dir \
+    --no-build-isolation \
+    'sentence-transformers==4.1.*' \
+    'transformers==4.52.*' \
+    'accelerate==1.7.*' \
     'bitsandbytes==0.46.*' \
-    'torchtune==0.6.*' \
+    'tiktoken==0.9.*' \
+    'huggingface_hub==0.32.*' \
+    'datasets==3.6.*' \
+    'optimum==1.25.*' \
+    'gptqmodel==2.2.*' \
+    # 'datatrove==0.5.*' \
+    # 'evaluate==0.4.*' \
+    # # TorchTune: https://github.com/pytorch/torchtune
+    # 'torchtune==0.6.*' \
     # 'chromadb==0.5.*' \
     # 'flax==0.10.*' \
     # 'tensorflow-datasets==4.9.*' \
     # 'tensorflow-hub==0.16.*' \
     # 'tensorflowjs==4.22.*' \
     # 'tensorflow-decision-forests==1.11.*' \
+    # 'auto-gptq==0.7.*' \
+    && \
+    # MLC: https://llm.mlc.ai/docs/get_started/introduction.html
+    # MLC Wasm: https://llm.mlc.ai/docs/install/emcc.html 
+    pip install --no-build-isolation --pre -U -f https://mlc.ai/wheels mlc-llm-nightly-cu128 mlc-ai-nightly-cu128 \
     && \
     mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
-RUN \
-    pip install --quiet --no-cache-dir \
-    --no-build-isolation \
-    'optimum==1.25.*' \
-    # 'auto-gptq==0.7.*' \
-    'gptqmodel==2.2.*' \
-    && \
     fix-permissions "${CONDA_DIR}"
 
 
@@ -582,7 +611,7 @@ RUN \
     pip install --quiet --no-cache-dir \
     'divewidgets' \
     # 'nbgrader==0.9.*' \
-    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@ff08ba3dc13ade375d43b51f561b10d37368ef6d' \
+    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@8e0b69a6da48856e6f180d27041b6e1c96602934' \
     # 'vllm' \
     'jdc' \
     # 'jupyterlab-tensorboard-pro' \
@@ -590,32 +619,11 @@ RUN \
     mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
 
-    # Other Tools
+# Other Tools
 USER root
 
+# Ollama
 RUN curl -fsSL https://ollama.com/install.sh | sh
-    # ARCH=$(dpkg --print-architecture) && \
-    # curl -L https://ollama.com/download/ollama-linux-${ARCH}.tgz -o ollama-linux-${ARCH}.tgz && \
-    # tar -C /usr -xzf ollama-linux-${ARCH}.tgz
-# # # CUDA
-# # RUN MAMBA_NO_LOW_SPEED_LIMIT=1 mamba install --quiet --yes \
-# #     'cuda' \
-# #     && \
-# #     mamba clean --all -f -y && \
-# #     fix-permissions "${CONDA_DIR}"
-# #
-# # # MLC: https://llm.mlc.ai/docs/get_started/introduction.html
-# # # MLC Wasm: https://llm.mlc.ai/docs/install/emcc.html 
-# # RUN mamba install --quiet --yes \    
-# #     'cuda-nvcc=12.3.*' \
-# #     'emscripten=3.1.*' \
-# #     && \
-# #     pip install --quiet --no-cache-dir --pre -U -f https://mlc.ai/wheels mlc-ai-nightly-cu123 \
-# #     && \
-# #     pip install --quiet --no-cache-dir --pre -U -f https://mlc.ai/wheels mlc-llm-nightly-cu123 \
-# #     && \
-# #     mamba clean --all -f -y && \
-# #     fix-permissions "${CONDA_DIR}"
 
 RUN \
     mamba install --quiet --yes \
@@ -632,6 +640,10 @@ RUN \
     && \
     mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
+
+# # Fix issue of packaging version being None after downgrade
+# # This is caused by installing langchain above 
+# RUN rm -rf /opt/conda/lib/python3.12/packaging-25.0.dist-info
 
 # ----------------------------------------------------------
 
@@ -657,8 +669,7 @@ EXPOSE $JUPYTER_PORT
 ### Tensorflow
 # minor issues: 
 # https://github.com/tensorflow/tensorflow/issues/63109
-
-# ENV TF_CPP_MIN_LOG_LEVEL=2
+ENV TF_CPP_MIN_LOG_LEVEL=2
 
 # https://github.com/tensorflow/tensorboard/pull/3674
 ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
@@ -703,6 +714,9 @@ RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 
 # Add C++ include path
 ENV CPLUS_INCLUDE_PATH="${CONDA_DIR}/include"
+
+# Add CUDA to PATH
+ENV PATH="/usr/local/cuda/bin:${PATH}"
 
 WORKDIR "${HOME}"
 
