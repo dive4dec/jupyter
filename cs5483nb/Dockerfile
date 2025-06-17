@@ -132,16 +132,34 @@ RUN add-apt-repository ppa:ubuntu-mozilla-daily/ppa && \
     apt-get install --yes firefox-trunk && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Install Google Chrome
+RUN wget -qO- https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/google-chrome.deb && \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends /tmp/google-chrome.deb && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/google-chrome.deb
+
 # Modify code.desktop to include --no-sandbox
 RUN sed -i 's|Exec=/usr/share/code/code|Exec=/usr/share/code/code --no-sandbox|' /usr/share/applications/code.desktop && \
-    sed -i 's|Exec=firefox-trunk|Exec=firefox-trunk --no-sandbox|' /usr/share/applications/firefox-trunk.desktop
+    sed -i 's|Exec=firefox-trunk|Exec=firefox-trunk --no-sandbox|' /usr/share/applications/firefox-trunk.desktop && \
+    sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --no-sandbox|' /usr/share/applications/google-chrome.desktop
 
 # Add alias to /etc/bash.bashrc to include --no-sandbox
 RUN cat <<EOF >> /etc/bash.bashrc
 alias code='code --no-sandbox'
 alias firefox-trunk='firefox-trunk --no-sandbox'
 alias firefox='firefox-trunk --no-sandbox'
+alias google-chrome='google-chrome --no-sandbox'
+alias google-chrome-stable='google-chrome-stable --no-sandbox'
 EOF
+
+# # Create a wrapper script for Google Chrome with --no-sandbox
+# RUN echo -e '#!/bin/bash\nexec /usr/bin/google-chrome-stable --no-sandbox "$@"' > /usr/local/bin/google-chrome-stable-no-sandbox && \
+#     chmod +x /usr/local/bin/google-chrome-stable-no-sandbox && \
+#     # Set Google Chrome as the default browser with --no-sandbox
+#     update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
+#     update-alternatives --set x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox && \
+#     update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
+#     update-alternatives --set gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox
 
 # Create a wrapper script for Firefox nightly with --no-sandbox
 RUN echo -e '#!/bin/bash\nexec /usr/bin/firefox-trunk --no-sandbox "$@"' > /usr/local/bin/firefox-trunk-no-sandbox && \
@@ -189,8 +207,7 @@ RUN bash /tmp/maxima/buildscript.sh
 COPY fix-permissions /usr/local/bin/fix-permissions
 RUN chmod a+rx /usr/local/bin/fix-permissions
 
-# Create NB_USER with name jovyan user with UID=1000 and in the 'users' group
-# and make sure these dirs are writable by the `users` group.
+# Make sure these dirs are writable by the `users` group.
 RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
     sed -i.bak -e 's/^%admin/#%admin/' /etc/sudoers && \
     sed -i.bak -e 's/^%sudo/#%sudo/' /etc/sudoers && \
@@ -203,10 +220,10 @@ RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
 USER ${NB_UID}
 
 # Pin python version here, or leave it empty for the latest version
-ARG PYTHON_VERSION=3.11
+ARG PYTHON_VERSION=3.12
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.0.5-0
+ARG MICROMAMBA_VERSION=2.1.1-0
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -263,6 +280,16 @@ eval "$(mamba shell hook --shell bash)"
 alias conda="mamba"
 EOF
 
+# Install CUDA Toolkit
+RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-ubuntu2404.pin \
+    && mv cuda-ubuntu2404.pin /etc/apt/preferences.d/cuda-repository-pin-600 \
+    && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub \
+    && gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg 3bf863cc.pub \
+    && echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" > /etc/apt/sources.list.d/cuda.list \
+    && apt-get update \
+    && apt-get install --yes cuda-toolkit-12-8 \
+    && rm -rf /var/lib/apt/lists/* 3bf863cc.pub
+
 USER ${NB_UID}
 
 RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTHON_SPECIFIER="python=${PYTHON_VERSION}"; fi && \
@@ -275,30 +302,32 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
         fix-permissions "${CONDA_DIR}" && \
         fix-permissions "/home/${NB_USER}"
 
-# # Tensorflow
-# RUN pip install --quiet --no-cache-dir \
-#     'tensorflow[and-cuda]==2.18.*' \
-#     && \
-#     fix-permissions "${CONDA_DIR}"
+# Fix compatibility issues with AI tools
+RUN echo "packaging <25" >> "${CONDA_DIR}/conda-meta/pinned"
+
+# Tensorflow
+RUN pip install --quiet --no-cache-dir \
+    'tensorflow==2.19.*' \
+    && \
+    fix-permissions "${CONDA_DIR}"
 
 # PyTorch
-RUN mamba install --quiet --yes -c pytorch -c nvidia \
-    'pytorch-cuda<=12.4' \
-    'pytorch=2.5.*' \
-    'torchvision=0.20.*' \
-    'torchaudio=2.5.*' \
+RUN pip install --quiet --no-cache-dir \
+    'torch==2.7.*' \
+    'torchvision==0.22.*' \
+    'torchaudio==2.7.*' \
+    --index-url https://download.pytorch.org/whl/cu128 \
     && \
-    mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
 # Install Jupyter Notebook, Lab, and Hub
 RUN \
     mamba install --yes --quiet \
     # code-server requirement
-    'nodejs==22.12.*' \
-    'notebook==7.2.*' \
-    'jupyterlab==4.2.*' \
-    'jupyterhub==5.2.*' \
+    'nodejs==22.13.*' \
+    'jupyterlab==4.4.*' \
+    'notebook==7.4.*' \
+    'jupyterhub==5.3.*' \
     && \
     # jupyter notebook --generate-config && \
     mamba clean --all -f -y && \
@@ -324,7 +353,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.97.2 && \
+    sh /tmp/install.sh --version 4.100.3 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -333,30 +362,19 @@ RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
 USER ${NB_UID}
 
 # Programming languages support
-# C, C++
-RUN \
-    ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" = "amd64" ]; then \
-        mamba install --quiet --yes \
-        'xeus-cling<=0.15.*' \
-        && \
-        mamba clean --all -f -y && \
-        fix-permissions "${CONDA_DIR}"; \
-    else \
-        echo "Skip installation"; \
-    fi
-    
-
 RUN \
     mamba install --quiet --yes \
+    # C, C++
+    'xeus-cpp=0.7.*' \
+    'xtensor=0.26.*' \
     # Java
     'openjdk=23.0.*' \
     'ant=1.10.*' \
     # Documentations
     'jupyterlab-myst=2.4.*' \
-    'jupyterlite=0.4.*' \
+    'jupyterlite=0.5.*' \
     'nbdev=2.3.*' \
-    'jupyterlite-sphinx=0.16.*' \ 
+    'jupyterlite-sphinx=0.20.*' \ 
     && \
     pip install --quiet --no-cache-dir \
     'calysto-scheme==1.4.*' \
@@ -383,19 +401,19 @@ RUN mamba install --quiet --yes \
     'pandas=2.2.*' \
     'matplotlib-base=3.10.*' \
     'ipympl=0.9.*' \
-    'sympy=1.13.*' \
+    'sympy=1.14.*' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
 RUN mamba install --quiet --yes \
-    'websockify=0.11.*' \
+    'websockify=0.13.*' \
     'jupyter-vscode-proxy=0.6' \
-    'jupytext=1.16.*' \
-    'black=24.10.*' \
+    'jupytext=1.17.*' \
+    'black=25.1.*' \
     'jupyterlab_code_formatter=3.0.*' \
     'jupyterlab-lsp=5.1.*' \
-    'python-lsp-server=1.11.*' \
+    'python-lsp-server=1.12.*' \
     'jupyter-resource-usage=1.1.*' \
     'nbgitpuller==1.2.*' \
     'jupyterlab-git==0.51.*' \
@@ -430,7 +448,7 @@ RUN \
 
 
 RUN pip install --quiet --no-cache-dir \
-    'jupyter-remote-desktop-proxy==2.0.*' \
+    'jupyter-remote-desktop-proxy==3.0.*' \
     # git+https://github.com/b-data/jupyter-remote-desktop-proxy.git@QGIS \
     && \
     mamba clean --all -f -y && \
@@ -444,51 +462,57 @@ RUN mamba install --quiet --yes \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
     
-# AI
-# Langchain: https://python.langchain.com/docs/how_to/installation/
-# TorchTune: https://github.com/pytorch/torchtune
+# # AI
 RUN mamba install --quiet --yes \
+    # See https://github.com/huggingface/transformers/issues/38442
+    'numpy<2.0.0' \
+    \
+    # Langchain: https://python.langchain.com/docs/how_to/installation/
     'langchain=0.3.*' \
-    'langchain-openai=0.2.*' \
+    'langchain-openai=0.3.*' \
     'langchain-community=0.3.*' \
     \
-    'tiktoken=0.8.*' \
-    'git-lfs=3.5.*' \
-    'transformers=4.47.*' \
-    'accelerate=1.2.*' \
-    'datasets=3.2.0' \
+    'git-lfs=3.6.*' \
     \
-    'nvitop=1.3.*' \
+    'nvitop=1.5.*' \
     'gpustat=1.1.*' \
+    \
+    'pyarrow=20.0.*' \
+    'pypdf2=3.0.*' \
+    \
+    # See https://llm.mlc.ai/docs/install/emcc.html
+    'emscripten=3.1.*' \
     && \
     pip install --quiet --no-cache-dir \
-    'torchtune==0.4.*' \
-    'evaluate==0.4.*' \
+    --no-build-isolation \
+    'sentence-transformers==4.1.*' \
+    'transformers==4.52.*' \
+    'accelerate==1.7.*' \
+    'bitsandbytes==0.46.*' \
+    'tiktoken==0.9.*' \
+    'huggingface_hub==0.32.*' \
+    'datasets==3.6.*' \
+    'optimum==1.25.*' \
+    'gptqmodel==2.2.*' \
+    # 'datatrove==0.5.*' \
+    # 'evaluate==0.4.*' \
+    # # TorchTune: https://github.com/pytorch/torchtune
+    # 'torchtune==0.6.*' \
     # 'chromadb==0.5.*' \
     # 'flax==0.10.*' \
     # 'tensorflow-datasets==4.9.*' \
     # 'tensorflow-hub==0.16.*' \
     # 'tensorflowjs==4.22.*' \
     # 'tensorflow-decision-forests==1.11.*' \
+    # 'auto-gptq==0.7.*' \
+    && \
+    # MLC: https://llm.mlc.ai/docs/get_started/introduction.html
+    # MLC Wasm: https://llm.mlc.ai/docs/install/emcc.html 
+    pip install --no-build-isolation --pre -U -f https://mlc.ai/wheels mlc-llm-nightly-cu128 mlc-ai-nightly-cu128 \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
-
-RUN ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" != "arm64" ]; then \
-        mamba install --quiet --yes \
-        'bitsandbytes=0.44.*' && \
-        pip install --quiet --no-cache-dir \
-        "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git" \
-        "xformers" && \
-        mamba clean --all -f -y && \
-        fix-permissions "${CONDA_DIR}" && \
-        cd ${CONDA_DIR}/lib/python3.11/site-packages/bitsandbytes/ && \
-        ln -s libbitsandbytes_cuda120.so libbitsandbytes_cuda124.so; \
-    else \
-        echo "Skipping installation on ARM architecture"; \
-    fi 
 
 RUN mamba install --quiet --yes \
     altair \
@@ -633,7 +657,7 @@ RUN for ext in \
         ms-toolsai.jupyter \
         ms-toolsai.vscode-jupyter-powertoys \
         ms-python.black-formatter \
-        streetsidesoftware.code-spell-checker@4.0.13 \
+        streetsidesoftware.code-spell-checker@4.1.0 \
         hediet.vscode-drawio \
         eamodio.gitlens \
         donjayamanne.githistory \
@@ -649,9 +673,9 @@ RUN for ext in \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.24.1 \
-    GitHub.copilot@1.275.0 \
-    Continue.continue@0.8.68 \
+    GitHub.copilot-chat@0.27.3 \
+    GitHub.copilot@1.326.0 \
+    Continue.continue@1.0.11 \
     henoc.svgeditor@2.9.0 \
     ms-vsliveshare.vsliveshare@1.0.5857 \
     ; do \
@@ -660,13 +684,13 @@ RUN for ext in \
 
 RUN \
     mamba install --quiet --yes \
-    'gh=2.67.*' \
-    'jupyter-ai=2.29.*' \
+    'gh=2.74.*' \
+    'jupyter-ai=2.31.*' \
     && \
     pip install --quiet --no-cache-dir \
     'divewidgets' \
     # 'nbgrader==0.9.*' \
-    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@ff08ba3dc13ade375d43b51f561b10d37368ef6d' \
+    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@8e0b69a6da48856e6f180d27041b6e1c96602934' \
     # 'vllm' \
     'jdc' \
     # 'jupyterlab-tensorboard-pro' \
@@ -677,10 +701,8 @@ RUN \
 # Other Tools
 USER root
 
+# Ollama
 RUN curl -fsSL https://ollama.com/install.sh | sh
-    # ARCH=$(dpkg --print-architecture) && \
-    # curl -L https://ollama.com/download/ollama-linux-${ARCH}.tgz -o ollama-linux-${ARCH}.tgz && \
-    # tar -C /usr -xzf ollama-linux-${ARCH}.tgz
 
 ### MOA ###
 RUN wget -q -O /tmp/moa.zip 'https://github.com/Waikato/moa/releases/download/2024.07.0/moa-release-2024.07.0-bin.zip' && \
@@ -712,11 +734,11 @@ USER ${NB_USER}
 
 RUN \
     mamba install --quiet --yes \
-    'plotly=6.0.*' \
-    'marimo=0.11.*' \
-    'sqlglot=26.0.*' \
-    'polars=1.22.*' \
-    'duckdb=1.2.0' \
+    'plotly=6.1.*' \
+    'marimo=0.13.*' \
+    'sqlglot=26.22.*' \
+    'polars=1.30.*' \
+    'duckdb=1.3.*' \
     && \
     pip install --quiet --no-cache-dir \
     'git+https://github.com/dive4dec/jupyter-marimo-proxy@a493c16de8e47a29c8f82ff65b10ee9ae393606c' \
@@ -750,8 +772,7 @@ EXPOSE $JUPYTER_PORT
 ### Tensorflow
 # minor issues: 
 # https://github.com/tensorflow/tensorflow/issues/63109
-
-# ENV TF_CPP_MIN_LOG_LEVEL=2
+ENV TF_CPP_MIN_LOG_LEVEL=2
 
 # https://github.com/tensorflow/tensorboard/pull/3674
 ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
@@ -794,9 +815,13 @@ RUN \
 
 RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 
-WORKDIR "${HOME}"
+# Add C++ include path
+ENV CPLUS_INCLUDE_PATH="${CONDA_DIR}/include"
 
-# ENV JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64"
+# Add CUDA to PATH
+ENV PATH="/usr/local/cuda/bin:${PATH}"
+
+WORKDIR "${HOME}"
 
 # ----------------------------------------------------------
 
@@ -807,7 +832,7 @@ USER ${NB_USER}
 # Collaboration
 RUN \
     mamba install --quiet --yes \
-    'jupyter-collaboration=3.1.*' \
+    'jupyter-collaboration=4.0.*' \
     # && \
     # pip install --pre --quiet --no-cache-dir \
     # 'jupyter-collaboration==3.0.1' \
@@ -818,5 +843,4 @@ RUN \
 
 FROM prod AS default
 
-# USER root
 USER ${NB_USER}
