@@ -183,10 +183,12 @@ RUN ARCH=$(dpkg --print-architecture) && \
 RUN \
     apt-get update --yes && \
     apt-get install --yes --no-install-recommends \
+    build-essential \
+    cmake \
+    ninja-build \
     # Java
     default-jdk default-jre \
     # C, C++
-    build-essential \
     gdb \
     fpc-source \
     # SQL
@@ -227,7 +229,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.12
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.1.1-0
+ARG MICROMAMBA_VERSION=2.3.0-1
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -357,17 +359,31 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.100.3 && \
+    sh /tmp/install.sh --version 4.101.1 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
     rm -rf /tmp/install.sh
+
+### Clang ###
+# See https://apt.llvm.org/
+RUN wget https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    sudo ./llvm.sh 21 all && \
+    rm -rf llvm.sh && \
+    for cmd in $(dpkg -L clang-format-21 clang-tidy-21 clang-21 clangd-21 lld-21 lldb-21 llvm-21 | grep '^/usr/bin/.*-21$'); do \
+      base=$(basename "$cmd"); \
+      base=${base%-21}; \
+      update-alternatives --install "/usr/bin/$base" "$base" "$cmd" 200; \
+    done
 
 USER ${NB_UID}
 
 # Programming languages support
 RUN \
     mamba install --quiet --yes \
+    # Python
+    'xeus-python=0.17.*' \
     # C, C++
     'xeus-cpp=0.7.*' \
     'xtensor=0.26.*' \
@@ -376,8 +392,8 @@ RUN \
     'ant=1.10.*' \
     # Documentations
     'jupyterlab-myst=2.4.*' \
-    'jupyterlite=0.5.*' \
-    'nbdev=2.3.*' \
+    'jupyterlite=0.6.*' \
+    'nbdev=2.4.*' \
     'jupyterlite-sphinx=0.20.*' \ 
     && \
     pip install --quiet --no-cache-dir \
@@ -417,13 +433,16 @@ RUN mamba install --quiet --yes \
     'black=25.1.*' \
     'jupyterlab_code_formatter=3.0.*' \
     'jupyterlab-lsp=5.1.*' \
-    'python-lsp-server=1.12.*' \
     'jupyter-resource-usage=1.1.*' \
     'nbgitpuller==1.2.*' \
     'jupyterlab-git==0.51.*' \
     && \
     pip install --quiet --no-cache-dir \
     # 'jupyterlab_filesystem_access==0.6.*' \
+    'python-lsp-server[all]==1.12.*' \
+    # 'clangd==20.1.*' \
+    # 'clang-format==20.1.*' \
+    'astyle==3.6.*' \
     'jupyter-www-proxy' \
     && \
     # See https://jupyterlab-lsp.readthedocs.io/en/latest/Language%20Servers.html#example-getting-all-the-node-js-based-language-servers
@@ -483,9 +502,6 @@ RUN mamba install --quiet --yes \
     \
     'pyarrow=20.0.*' \
     'pypdf2=3.0.*' \
-    \
-    # See https://llm.mlc.ai/docs/install/emcc.html
-    'emscripten=3.1.*' \
     && \
     pip install --quiet --no-cache-dir \
     --no-build-isolation \
@@ -517,6 +533,24 @@ RUN mamba install --quiet --yes \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
+USER root
+
+### Emscripten ###
+# Install Emscripten for MLC Wasm
+# See: 
+#   https://emscripten.org/docs/getting_started/downloads.html
+#   https://llm.mlc.ai/docs/install/emcc.html
+RUN wget https://github.com/emscripten-core/emsdk/archive/refs/tags/4.0.10.tar.gz && \
+    tar -xzf 4.0.10.tar.gz && \
+    rm 4.0.10.tar.gz && \
+    mv emsdk-4.0.10 /opt/emsdk && \
+    cd /opt/emsdk && \
+    fix-permissions /opt/emsdk && \
+    chmod +x emsdk && \
+    ./emsdk install latest && \
+    ./emsdk activate latest
+
+USER ${NB_UID}
 
 RUN mamba install --quiet --yes \
     altair \
@@ -544,7 +578,7 @@ RUN mamba install --quiet --yes \
 # Other UI enhancements
 RUN \
     mamba install --quiet --yes \
-    'jupyter-archive=3.4.*' \
+    'jupyter-archive' \
     # && \
     # pip install --quiet --no-cache-dir \
     # 'jupyterlab-unfold==0.3.*' \
@@ -575,6 +609,8 @@ COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 
 # Code extensions
 RUN for ext in \
+        llvm-vs-code-extensions.vscode-clangd \
+        # vadimcn.vscode-lldb \
         ms-python.python \
         ms-python.pylint \
         ms-toolsai.jupyter \
@@ -582,7 +618,7 @@ RUN for ext in \
         ms-python.black-formatter \
         streetsidesoftware.code-spell-checker@4.1.0 \
         hediet.vscode-drawio \
-        eamodio.gitlens \
+        # eamodio.gitlens \
         donjayamanne.githistory \
         mhutchie.git-graph \
         waderyan.gitblame \
@@ -590,6 +626,7 @@ RUN for ext in \
         ziyasal.vscode-open-in-github \
         alefragnani.project-manager \
         ziyasal.vscode-open-in-github \
+        mads-hartmann.bash-ide-vscode \
         ; do \
         code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
     done
@@ -608,6 +645,9 @@ RUN \
     'gh=2.74.*' \
     'jupyter-ai=2.31.*' \
     && \
+    # pip install --quiet --no-cache-dir --pre \
+    # 'jupyter-ai==3.0.0b0' \
+    # && \
     pip install --quiet --no-cache-dir \
     'divewidgets' \
     # 'nbgrader==0.9.*' \
@@ -628,7 +668,7 @@ RUN curl -fsSL https://ollama.com/install.sh | sh
 RUN \
     mamba install --quiet --yes \
     'plotly=6.1.*' \
-    'marimo=0.13.*' \
+    'marimo=0.14.*' \
     'sqlglot=26.22.*' \
     'polars=1.30.*' \
     'duckdb=1.3.*' \
@@ -637,6 +677,13 @@ RUN \
     'git+https://github.com/dive4dec/jupyter-marimo-proxy@a493c16de8e47a29c8f82ff65b10ee9ae393606c' \
     'kaleido==0.2.*' \
     # 'capymoa==0.8.*' \
+    && \
+    mamba clean --all -f -y && \    
+    fix-permissions "${CONDA_DIR}"
+
+RUN \
+    mamba install --quiet --yes \
+    'xeus-python' \
     && \
     mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
@@ -715,8 +762,12 @@ RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 # Add C++ include path
 ENV CPLUS_INCLUDE_PATH="${CONDA_DIR}/include"
 
-# Add CUDA to PATH
-ENV PATH="/usr/local/cuda/bin:${PATH}"
+# Add Emscripten and CUDA to PATH
+ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:/usr/local/cuda/bin:${PATH}" \
+    CC="clang" \
+    CXX=clang++ \
+    CXXFLAGS="-stdlib=libc++" \
+    LDFLAGS="-stdlib=libc++ -lc++abi"
 
 WORKDIR "${HOME}"
 
@@ -730,10 +781,9 @@ USER ${NB_USER}
 RUN \
     mamba install --quiet --yes \
     'jupyter-collaboration=4.0.*' \
-    # && \
-    # pip install --pre --quiet --no-cache-dir \
-    # 'jupyter-collaboration==3.0.1' \
-    # 'jupyterlab-chat==0.6.2' \
+    && \
+    pip install --pre --quiet --no-cache-dir \
+    'jupyterlab-chat==0.13.*' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
