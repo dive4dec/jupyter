@@ -369,11 +369,11 @@ RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
 # See https://apt.llvm.org/
 RUN wget https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
-    sudo ./llvm.sh 21 all && \
+    sudo ./llvm.sh 20 all && \
     rm -rf llvm.sh && \
-    for cmd in $(dpkg -L clang-format-21 clang-tidy-21 clang-21 clangd-21 lld-21 lldb-21 llvm-21 | grep '^/usr/bin/.*-21$'); do \
+    for cmd in $(dpkg -L clang-format-20 clang-tidy-20 clang-20 clangd-20 lld-20 lldb-20 llvm-20 | grep '^/usr/bin/.*-20$'); do \
       base=$(basename "$cmd"); \
-      base=${base%-21}; \
+      base=${base%-20}; \
       update-alternatives --install "/usr/bin/$base" "$base" "$cmd" 200; \
     done
 
@@ -382,11 +382,6 @@ USER ${NB_UID}
 # Programming languages support
 RUN \
     mamba install --quiet --yes \
-    # Python
-    'xeus-python=0.17.*' \
-    # C, C++
-    'xeus-cpp=0.7.*' \
-    'xtensor=0.26.*' \
     # Java
     'openjdk=23.0.*' \
     'ant=1.10.*' \
@@ -465,7 +460,7 @@ RUN mamba install --quiet --yes \
 # Documentations with MyST
 RUN \
     npm install -g \
-    mystmd \
+    mystmd@1.5.0 \
     && \
     npm cache clean --force
 
@@ -550,6 +545,16 @@ RUN wget https://github.com/emscripten-core/emsdk/archive/refs/tags/4.0.10.tar.g
     ./emsdk install latest && \
     ./emsdk activate latest
 
+### cosmocc ###
+# Install Cosmopolitan LibC
+# See: https://github.com/jart/cosmopolitan
+RUN mkdir -p /opt/cosmocc && \
+    wget https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip && \
+    unzip cosmocc-4.0.2.zip -d /opt/cosmocc && \
+    rm cosmocc-4.0.2.zip && \
+    fix-permissions /opt/cosmocc
+
+
 USER ${NB_UID}
 
 RUN mamba install --quiet --yes \
@@ -610,13 +615,14 @@ COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 # Code extensions
 RUN for ext in \
         llvm-vs-code-extensions.vscode-clangd \
+        kylinideteam.cmake-intellisence \
         # vadimcn.vscode-lldb \
         ms-python.python \
         ms-python.pylint \
         ms-toolsai.jupyter \
         ms-toolsai.vscode-jupyter-powertoys \
         ms-python.black-formatter \
-        streetsidesoftware.code-spell-checker@4.1.0 \
+        # streetsidesoftware.code-spell-checker@4.1.0 \
         hediet.vscode-drawio \
         # eamodio.gitlens \
         donjayamanne.githistory \
@@ -634,7 +640,7 @@ RUN for ext in \
 RUN for ext in \
     GitHub.copilot-chat@0.27.3 \
     GitHub.copilot@1.326.0 \
-    Continue.continue@1.0.11 \
+    Continue.continue@1.0.15 \
     ms-vsliveshare.vsliveshare@1.0.5857 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
@@ -665,6 +671,8 @@ USER root
 # Ollama
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
+USER ${NB_UID}
+
 RUN \
     mamba install --quiet --yes \
     'plotly=6.1.*' \
@@ -683,7 +691,12 @@ RUN \
 
 RUN \
     mamba install --quiet --yes \
-    'xeus-python' \
+    # Python
+    # 'xeus-python=0.17.*' \
+    # C, C++
+    'xeus-cling=0.15.*' \
+    'xtensor' \
+    'xwidgets' \
     && \
     mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
@@ -745,6 +758,7 @@ COPY --chown=${NB_USER}:${NB_GID} nbgrader_config.py ${CONDA_DIR}/etc/jupyter/nb
 
 COPY --chown="${NB_UID}:${NB_GID}" initial-condarc "${CONDA_DIR}/.condarc"
 COPY --chown="${NB_UID}:${NB_GID}" kernel.json "${CONDA_DIR}/share/jupyter/kernels/python3/kernel.json"
+COPY --chown="${NB_UID}:${NB_GID}" jupyterlab_code_formatter_settings.json "${CONDA_DIR}/share/jupyter/labextensions/jupyterlab_code_formatter/schemas/jupyterlab_code_formatter/settings.json"
 
 # Disable news and update
 # See https://jupyterlab.readthedocs.io/en/stable/user/announcements.html
@@ -763,9 +777,9 @@ RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 ENV CPLUS_INCLUDE_PATH="${CONDA_DIR}/include"
 
 # Add Emscripten and CUDA to PATH
-ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:/usr/local/cuda/bin:${PATH}" \
-    CC="clang" \
-    CXX=clang++ \
+ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:/usr/local/cuda/bin:${PATH}:/opt/cosmocc/bin" \
+    CC="/usr/bin/clang" \
+    CXX="/usr/bin/clang++" \
     CXXFLAGS="-stdlib=libc++" \
     LDFLAGS="-stdlib=libc++ -lc++abi"
 
