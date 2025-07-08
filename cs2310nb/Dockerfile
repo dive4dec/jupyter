@@ -755,20 +755,8 @@ USER ${NB_UID}
 
 RUN \
     pip install --quiet --no-cache-dir \
-    'git+https://github.com/dive4dec/dive_ai@3b9e78f5adaa7c633c8eaf5c0ae392b1627683d6#subdirectory=dive_ai' \
-    # See https://github.com/tensorflow/tfjs/issues/8375#issuecomment-2345799395
-    # https://stackoverflow.com/questions/78551681/need-to-convert-keras-model-to-tensorflow-js-but-facing-version-compatibility-is
-    'tensorflow-datasets==4.9.*' \
-    'flax==0.10.*' \
-    'tensorflow-hub==0.16.*' \
-    'tensorflow-decision-forests==1.12.*' \
-    && \
-    pip install --quiet --no-cache-dir --no-deps \
-    'tensorflowjs==4.22.*' \
-    && \
+    'git+https://github.com/dive4dec/dive_ai@3b9e78f5adaa7c633c8eaf5c0ae392b1627683d6#subdirectory=dive_ai' && \
     fix-permissions "${CONDA_DIR}"
-
-ENV TF_USE_LEGACY_KERAS=1
 
 RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 

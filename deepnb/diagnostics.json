@@ -1,0 +1,38 @@
+{
+    // Code Diagnostics
+    // @jupyter-lsp/jupyterlab-lsp:diagnostics
+    // LSP Diagnostics (linter results) settings.
+    // ******************************************
+
+    // Delay between typing and refreshing diagnostic (requires restart)
+    // [missing schema description]
+    "debounceDelay": 250,
+
+    // Default severity level
+    // Default level of the severity for diagnostics without severity provided by the language server.
+    "defaultSeverity": "Warning",
+
+    // Disable
+    // Disable this feature. Requires reloading JupyterLab to apply changes.
+    "disable": false,
+
+    // Show gutter (experimental, requires restart)
+    // [missing schema description]
+    "gutter": false,
+
+    // Diagnostic codes to ignore
+    // Codes of diagnostics which should not be shown in the panel nor highlighted in the editor.
+    "ignoreCodes": [
+        "E303",
+        "E305",
+        "E402"
+    ],
+
+    // Diagnostic messages to ignore
+    // Regular expressions matching messages of diagnostics which should not be shown in the panel nor highlighted in the editor.
+    "ignoreMessagesPatterns": [],
+
+    // Diagnostic severity levels to ignore
+    // Severities of diagnostics which should not be shown in the panel nor highlighted in the editor.
+    "ignoreSeverities": []
+}
