@@ -746,6 +746,9 @@ COPY --chown="${NB_UID}:${NB_GID}" jupyterlab_code_formatter_settings.json "${CO
 # Jupyter LSP default settings
 COPY --chown="${NB_UID}:${NB_GID}" jupyterlab_code_formatter_settings.json "${CONDA_DIR}/share/jupyter/labextensions/@jupyter-lsp/jupyterlab-lsp/schemas/@jupyter-lsp/jupyterlab-lsp/diagnostics.json"
 COPY --chown="${NB_UID}:${NB_GID}" jupyter_clangd.json "${CONDA_DIR}/etc/jupyter/jupyter_server_config.d/jupyter_clangd.json"
+# IPython config for AiMagics
+COPY --chown=${NB_USER}:${NB_GID} ipython_config.py "${CONDA_DIR}/etc/ipython/ipython_config.py"
+
 
 # Disable news and update
 # See https://jupyterlab.readthedocs.io/en/stable/user/announcements.html
