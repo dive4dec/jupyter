@@ -9,14 +9,6 @@ ARG NB_USER="jovyan"
 ARG NB_UID="1000"
 ARG NB_GID="100"
 
-# Fix the UID conflict with user ubuntu
-# See https://bugs.launchpad.net/cloud-images/+bug/2005129
-RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu && \
-    useradd -l -m -s /bin/bash -N -u "${NB_UID}" "${NB_USER}"
-
-# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
 ENV CONDA_DIR=/opt/conda \
     SHELL=/bin/bash \
     NB_USER="${NB_USER}" \
@@ -29,9 +21,15 @@ ENV CONDA_DIR=/opt/conda \
 ENV PATH="${CONDA_DIR}/bin:${PATH}" \
     HOME="/home/${NB_USER}"
 
+# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Fix the UID conflict with user ubuntu
+# See https://bugs.launchpad.net/cloud-images/+bug/2005129
+RUN touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu && \
+    useradd -l -m -s /bin/bash -N -u "${NB_UID}" "${NB_USER}"
+
 USER root
-
-
 FROM foundation AS base
 
 RUN apt-get update --yes && \
@@ -72,6 +70,7 @@ RUN apt-get update --yes && \
 COPY fix-permissions /usr/local/bin/fix-permissions
 RUN chmod a+rx /usr/local/bin/fix-permissions
 
+# Make sure these dirs are writable by the `users` group.
 RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
     sed -i.bak -e 's/^%admin/#%admin/' /etc/sudoers && \
     sed -i.bak -e 's/^%sudo/#%sudo/' /etc/sudoers && \
@@ -89,7 +88,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.12
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.0.5-0
+ARG MICROMAMBA_VERSION=2.3.0-1
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>

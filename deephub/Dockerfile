@@ -224,7 +224,7 @@ COPY etc/libnss-ldap.conf /etc/ldap.conf
 COPY etc/nsswitch.conf /etc/nsswitch.conf
 COPY etc/pam_radius_auth.conf /etc/pam_radius_auth.conf
 COPY etc/pam.d /etc/pam.d
-COPY login.html /usr/local/share/jupyterhub/templates/login.html
+COPY login.html /opt/conda/share/jupyterhub/templates/login.html
 
 USER ${NB_USER}
 WORKDIR /srv/jupyterhub
