@@ -301,7 +301,7 @@ RUN pip install --quiet --no-cache-dir \
 # PyTorch
 RUN ARCH=$(dpkg --print-architecture) && \
     PIP_INDEX="" && \
-    [ "$ARCH" = "amd64" ] && PIP_INDEX="--index-url https://download.pytorch.org/whl/cu128" && \
+    [ "$ARCH" = "amd64" ] && PIP_INDEX="--index-url https://download.pytorch.org/whl/cu128"; \
     pip install --quiet --no-cache-dir \
         'torch==2.7.*' \
         'torchvision==0.22.*' \
