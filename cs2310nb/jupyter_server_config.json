@@ -1,0 +1,16 @@
+{
+  "ServerApp": {
+    "contents_manager_class": "jupyterfs.MetaManager",
+    "jpserver_extensions": {
+      "jupyterfs.extension": true
+    }
+  },
+  "JupyterFs": {
+    "resources": [
+      {
+        "name": "Root",
+        "url": "osfs:///"
+      }
+    ]
+  }
+}

@@ -132,16 +132,34 @@ RUN add-apt-repository ppa:ubuntu-mozilla-daily/ppa && \
     apt-get install --yes firefox-trunk && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Install Google Chrome
+RUN wget -qO- https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/google-chrome.deb && \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends /tmp/google-chrome.deb && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/google-chrome.deb
+
 # Modify code.desktop to include --no-sandbox
 RUN sed -i 's|Exec=/usr/share/code/code|Exec=/usr/share/code/code --no-sandbox|' /usr/share/applications/code.desktop && \
-    sed -i 's|Exec=firefox-trunk|Exec=firefox-trunk --no-sandbox|' /usr/share/applications/firefox-trunk.desktop
+    sed -i 's|Exec=firefox-trunk|Exec=firefox-trunk --no-sandbox|' /usr/share/applications/firefox-trunk.desktop && \
+    sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --no-sandbox|' /usr/share/applications/google-chrome.desktop
 
 # Add alias to /etc/bash.bashrc to include --no-sandbox
 RUN cat <<EOF >> /etc/bash.bashrc
 alias code='code --no-sandbox'
 alias firefox-trunk='firefox-trunk --no-sandbox'
 alias firefox='firefox-trunk --no-sandbox'
+alias google-chrome='google-chrome --no-sandbox'
+alias google-chrome-stable='google-chrome-stable --no-sandbox'
 EOF
+
+# # Create a wrapper script for Google Chrome with --no-sandbox
+# RUN echo -e '#!/bin/bash\nexec /usr/bin/google-chrome-stable --no-sandbox "$@"' > /usr/local/bin/google-chrome-stable-no-sandbox && \
+#     chmod +x /usr/local/bin/google-chrome-stable-no-sandbox && \
+#     # Set Google Chrome as the default browser with --no-sandbox
+#     update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
+#     update-alternatives --set x-www-browser /usr/local/bin/google-chrome-stable-no-sandbox && \
+#     update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox 200 && \
+#     update-alternatives --set gnome-www-browser /usr/local/bin/google-chrome-stable-no-sandbox
 
 # Create a wrapper script for Firefox nightly with --no-sandbox
 RUN echo -e '#!/bin/bash\nexec /usr/bin/firefox-trunk --no-sandbox "$@"' > /usr/local/bin/firefox-trunk-no-sandbox && \
@@ -261,21 +279,14 @@ alias conda="mamba"
 EOF
 
 # Install CUDA Toolkit
-RUN ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" = "amd64" ]; then \
-        wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-ubuntu2404.pin && \
-        mv cuda-ubuntu2404.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
-        wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub && \
-        gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg 3bf863cc.pub && \
-        echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" > /etc/apt/sources.list.d/cuda.list && \
-        apt-get update && \
-        apt-get install --yes cuda-toolkit-12-8 && \
-        rm -rf /var/lib/apt/lists/* 3bf863cc.pub; \
-    else \
-        echo "Skipping CUDA installation: unsupported architecture ($ARCH)"; \
-    fi
-
-
+RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-ubuntu2404.pin \
+    && mv cuda-ubuntu2404.pin /etc/apt/preferences.d/cuda-repository-pin-600 \
+    && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub \
+    && gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg 3bf863cc.pub \
+    && echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" > /etc/apt/sources.list.d/cuda.list \
+    && apt-get update \
+    && apt-get install --yes cuda-toolkit-12-8 \
+    && rm -rf /var/lib/apt/lists/* 3bf863cc.pub
 
 USER ${NB_UID}
 
@@ -299,16 +310,13 @@ RUN pip install --quiet --no-cache-dir \
     fix-permissions "${CONDA_DIR}"
 
 # PyTorch
-RUN ARCH=$(dpkg --print-architecture) && \
-    PIP_INDEX="" && \
-    [ "$ARCH" = "amd64" ] && PIP_INDEX="--index-url https://download.pytorch.org/whl/cu128" && \
-    pip install --quiet --no-cache-dir \
-        'torch==2.7.*' \
-        'torchvision==0.22.*' \
-        'torchaudio==2.7.*' \
-        $PIP_INDEX && \
+RUN pip install --quiet --no-cache-dir \
+    'torch==2.7.*' \
+    'torchvision==0.22.*' \
+    'torchaudio==2.7.*' \
+    --index-url https://download.pytorch.org/whl/cu128 \
+    && \
     fix-permissions "${CONDA_DIR}"
-
 
 # Install Jupyter Notebook, Lab, and Hub
 RUN \
@@ -540,7 +548,8 @@ RUN mamba install --quiet --yes \
     h5py \
     numba \
     patsy \
-    pytables \
+    ## conflicts with pytorch cuda version
+    # pytables \
     seaborn \
     scikit-learn \
     sqlalchemy \
@@ -641,20 +650,20 @@ RUN \
 # Other Tools
 USER root
 
-# Ollama
-RUN curl -fsSL https://ollama.com/install.sh | sh
+# # Ollama
+# RUN curl -fsSL https://ollama.com/install.sh | sh
 
 USER ${NB_UID}
 
 RUN \
     mamba install --quiet --yes \
     'plotly=6.1.*' \
+    'marimo=0.14.*' \
     'sqlglot=26.22.*' \
     'polars=1.30.*' \
     'duckdb=1.3.*' \
     && \
     pip install --quiet --no-cache-dir \
-    'marimo[recommended]==0.14.*' \
     'git+https://github.com/dive4dec/jupyter-marimo-proxy@a493c16de8e47a29c8f82ff65b10ee9ae393606c' \
     'kaleido==0.2.*' \
     # 'capymoa==0.8.*' \
@@ -762,8 +771,15 @@ RUN \
 
 RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 
+# Add C++ include path
+# ENV CPLUS_INCLUDE_PATH="${CONDA_DIR}/include"
+
 # Add Emscripten and CUDA to PATH
 ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:/usr/local/cuda/bin:${PATH}:/opt/cosmocc/bin"
+    # CC="/usr/bin/clang" \
+    # CXX="/usr/bin/clang++" \
+    # CXXFLAGS="-stdlib=libc++" \
+    # LDFLAGS="-stdlib=libc++ -lc++abi"
 
 WORKDIR "${HOME}"
 
@@ -779,7 +795,7 @@ RUN \
     'jupyter-collaboration=4.1.*' \
     && \
     pip install --pre --quiet --no-cache-dir \
-    'jupyterlab-chat==0.16.*' \
+    'jupyterlab-chat==0.13.*' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
