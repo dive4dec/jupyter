@@ -8,8 +8,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 ARG NB_USER="jovyan"
 ARG NB_UID="1000"
 ARG NB_GID="100"
-
-ENV CONDA_DIR=/opt/conda \
+ARG CONDA_DIR=/opt/conda
+ENV CONDA_DIR=${CONDA_DIR} \
     SHELL=/bin/bash \
     NB_USER="${NB_USER}" \
     NB_UID=${NB_UID} \
@@ -17,12 +17,18 @@ ENV CONDA_DIR=/opt/conda \
     LC_ALL=C.UTF-8 \
     LANG=C.UTF-8 \
     LANGUAGE=C.UTF-8 \
-    TZ=Asia/Hong_Kong
-ENV PATH="${CONDA_DIR}/bin:${PATH}" \
-    HOME="/home/${NB_USER}"
+    TZ=Asia/Hong_Kong \
+    HOME="/home/${NB_USER}" \
+    PATH="${CONDA_DIR}/bin:${PATH}"
 
 # Fix: https://github.com/hadolint/hadolint/wiki/DL4006
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Use system bashrc since /home/jovyan is temporary
+RUN mv /etc/skel/.bashrc /etc/bash.bashrc && \
+    # Enable prompt color in the skeleton .bashrc before creating the default NB_USER
+    # hadolint ignore=SC2016
+    sed -i 's/^#force_color_prompt=yes/force_color_prompt=yes/' /etc/bash.bashrc
 
 # Fix the UID conflict with user ubuntu
 # See https://bugs.launchpad.net/cloud-images/+bug/2005129
@@ -241,23 +247,22 @@ RUN set -x && \
     fi && \
     BIN_FOLDER="${CONDA_DIR}/bin" && \
     mkdir -p "${BIN_FOLDER}" && \
-    curl "${RELEASE_URL}" -o "${BIN_FOLDER}/mamba" -fsSL --compressed && \
-    chmod +x "${BIN_FOLDER}/mamba"
-
-USER root
+    curl "${RELEASE_URL}" -o "${BIN_FOLDER}/micromamba" -fsSL --compressed && \
+    chmod +x "${BIN_FOLDER}/micromamba" && \
+    ln -s ${BIN_FOLDER}/micromamba ${BIN_FOLDER}/mamba && \
+    ln -s ${BIN_FOLDER}/micromamba ${BIN_FOLDER}/conda
 
 # Set MAMBA_ROOT_PREFIX environment variable for the Docker build process and runtime
 ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
 
-# Enable prompt color in the skeleton .bashrc before creating the default NB_USER
-# hadolint ignore=SC2016
-RUN sed -i 's/^#force_color_prompt=yes/force_color_prompt=yes/' /etc/skel/.bashrc && \
-    cat /etc/skel/.bashrc >> /etc/bash.bashrc
+USER root
 
 # Add call to micromamba init script
 RUN cat <<'EOF' >> /etc/bash.bashrc
 eval "$(mamba shell hook --shell bash)"
-alias conda="mamba"
+alias conda="micromamba"
+alias mamba="micromamba"
+mamba activate
 EOF
 
 # Install CUDA Toolkit
@@ -284,13 +289,14 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
         "${PYTHON_SPECIFIER}" \
         && \
         # Pin major.minor version of python
+        mkdir -p "${CONDA_DIR}/conda-meta" && \
         mamba list python | sed 's/^[[:space:]]*//' | grep '^python ' | tr -s ' ' | cut -d ' ' -f 1,2 >> "${CONDA_DIR}/conda-meta/pinned" && \
         mamba clean --all -f -y && \
         fix-permissions "${CONDA_DIR}" && \
         fix-permissions "/home/${NB_USER}"
 
 # Fix compatibility issues with AI tools
-RUN echo "packaging <25" >> "${CONDA_DIR}/conda-meta/pinned"
+RUN echo "packaging<25" >> "${CONDA_DIR}/conda-meta/pinned"
 
 # Tensorflow
 RUN pip install --quiet --no-cache-dir \
@@ -314,7 +320,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 RUN \
     mamba install --yes --quiet \
     # code-server requirement
-    'nodejs==22.13.*' \
+    'nodejs==24.4.*' \
     'jupyterlab==4.4.*' \
     'notebook==7.4.*' \
     'jupyterhub==5.3.*' \
@@ -434,7 +440,7 @@ RUN mamba install --quiet --yes \
 # Documentations with MyST
 RUN \
     npm install -g \
-    mystmd@1.5.0 \
+    mystmd@1.5.1 \
     && \
     npm cache clean --force
 
@@ -474,14 +480,15 @@ RUN mamba install --quiet --yes \
     && \
     pip install --quiet --no-cache-dir \
     --no-build-isolation \
+    'langchain-ollama==0.3.*' \
     'sentence-transformers==4.1.*' \
-    'transformers==4.52.*' \
-    'accelerate==1.7.*' \
-    'bitsandbytes==0.46.*' \
+    'transformers==4.53.*' \
+    'accelerate==1.8.*' \
     'tiktoken==0.9.*' \
-    'huggingface_hub==0.32.*' \
-    'datasets==3.6.*' \
-    'optimum==1.25.*' \
+    'huggingface_hub==0.33.*' \
+    'datasets==4.0.*' \
+    'optimum==1.26.*' \
+    'bitsandbytes==0.46.*' \
     'gptqmodel==2.2.*' \
     # 'datatrove==0.5.*' \
     # 'evaluate==0.4.*' \
@@ -743,7 +750,6 @@ COPY --chown="${NB_UID}:${NB_GID}" jupyterlab_code_formatter_settings.json "${CO
 # IPython config
 COPY --chown=${NB_USER}:${NB_GID} ipython_config.py "${CONDA_DIR}/etc/ipython/ipython_config.py"
 # Jupyter Server
-COPY --chown="${NB_UID}:${NB_GID}" jupyter_server_config.json "${CONDA_DIR}/etc/jupyter/jupyter_server_config.json"
 COPY --chown="${NB_UID}:${NB_GID}" jupyter_server_config.d/ "${CONDA_DIR}/etc/jupyter/jupyter_server_config.d/"
 
 # Disable news and update
@@ -755,9 +761,7 @@ USER ${NB_UID}
 RUN \
     pip install --quiet --no-cache-dir \
     'git+https://github.com/dive4dec/dive_ai@3b9e78f5adaa7c633c8eaf5c0ae392b1627683d6#subdirectory=dive_ai' \
-    'jupyter-fs==1.1.*' \
-    'fs==2.4.*' \
-    's3fs==2025.5.1' && \
+    && \
     fix-permissions "${CONDA_DIR}"
 
 RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"

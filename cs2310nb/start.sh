@@ -5,10 +5,10 @@
 set -e
 
 # Initialize micromamba shell functions in this session
-eval "$(mamba shell hook -s bash)"
+eval "$(micromamba shell hook -s bash)"
 
 # Activate the base environment
-mamba activate
+micromamba activate
 
 # The _log function is used for everything this script wants to log. It will
 # always log errors and warnings, but can be silenced for other messages

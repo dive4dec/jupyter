@@ -11,7 +11,8 @@
 cs1302nb := cs1302nb^0.1.14a
 cs1302nb_collab := $(cs1302nb)^collab
 cs1302nb_core := $(cs1302nb)^^core
-cs2310nb := cs2310nb^0.1.1h
+cs2310nb := cs2310nb^0.1.2b
+cs2310nb_min := $(cs2310nb)^^min
 
 cs2310nb_collab := $(cs2310nb)^collab
 jhub := jhub^4.0.0g
