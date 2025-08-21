@@ -321,8 +321,8 @@ RUN \
     mamba install --yes --quiet \
     # code-server requirement
     'nodejs==24.4.*' \
-    'jupyterlab==4.4.*' \
     'notebook==7.4.*' \
+    'jupyterlab==4.4.*' \
     'jupyterhub==5.3.*' \
     && \
     # jupyter notebook --generate-config && \
@@ -339,7 +339,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.101.2 && \
+    sh /tmp/install.sh --version 4.103.1 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -701,7 +701,7 @@ COPY --from=base /opt/ /opt/
 ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
 
 # Configure container startup
-ENTRYPOINT ["tini", "-g", "--"]
+ENTRYPOINT ["tini", "-g", "--", "micromamba", "run", "-n", "base"]
 # Configure container startup
 CMD ["start-notebook.sh"]
 
@@ -768,6 +768,7 @@ RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 
 # Add Emscripten and CUDA to PATH
 ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:/usr/local/cuda/bin:${PATH}:/opt/cosmocc/bin"
+RUN chmod a+w /opt/emsdk/upstream/emscripten/cache
 
 WORKDIR "${HOME}"
 
@@ -783,7 +784,7 @@ RUN \
     'jupyter-collaboration=4.1.*' \
     && \
     pip install --pre --quiet --no-cache-dir \
-    'jupyterlab-chat==0.16.*' \
+    'jupyterlab-chat==0.17.*' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
