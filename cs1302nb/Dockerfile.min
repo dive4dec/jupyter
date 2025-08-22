@@ -239,9 +239,13 @@ RUN \
     'openssh' \
     'tini' \
     'xz' \
-    'numpy<2' \
+    'numpy' \
+    'manim=0.19.*' \
+    'manimpango=0.6.*' \
+    'pandas=2.2.*' \
     'matplotlib-base=3.10.*' \
     'ipympl=0.9.*' \
+    'sympy=1.14.*' \
     'jupytext=1.17.*' \
     'ipywidgets=8.1.*' \
     'jupyterlab-myst=2.4.*' \
@@ -267,8 +271,6 @@ RUN mamba install --quiet --yes \
     pip install --quiet --no-cache-dir \
     # 'jupyterlab_filesystem_access==0.6.*' \
     'python-lsp-server[all]==1.12.*' \
-    # 'clangd==20.1.*' \
-    # 'clang-format==20.1.*' \
     'astyle==3.6.*' \
     'jupyter-www-proxy' \
     && \
@@ -296,36 +298,6 @@ RUN \
     && \
     npm cache clean --force
 
-
-
-USER root
-
-### Emscripten ###
-# Install Emscripten for MLC Wasm
-# See: 
-#   https://emscripten.org/docs/getting_started/downloads.html
-#   https://llm.mlc.ai/docs/install/emcc.html
-RUN wget https://github.com/emscripten-core/emsdk/archive/refs/tags/4.0.10.tar.gz && \
-    tar -xzf 4.0.10.tar.gz && \
-    rm 4.0.10.tar.gz && \
-    mv emsdk-4.0.10 /opt/emsdk && \
-    cd /opt/emsdk && \
-    chmod +x emsdk && \
-    ./emsdk install latest && \
-    ./emsdk activate latest && \
-    fix-permissions /opt/emsdk
-
-### cosmocc ###
-# Install Cosmopolitan LibC
-# See: https://github.com/jart/cosmopolitan
-RUN mkdir -p /opt/cosmocc && \
-    wget https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip && \
-    unzip cosmocc-4.0.2.zip -d /opt/cosmocc && \
-    rm cosmocc-4.0.2.zip && \
-    fix-permissions /opt/cosmocc
-
-
-USER ${NB_UID}
 
 
 # Copy local files as late as possible to avoid cache busting
@@ -422,7 +394,7 @@ RUN jupyter server extension disable --sys-prefix nbgrader.server_extensions.for
     jupyter labextension disable nbgrader:course-list && \
     jupyter labextension disable nbgrader:create-assignment
 
-ENV COURSE_ID="cs2310"
+ENV COURSE_ID="cs1302"
 
 # Configuration files
 # Conda
@@ -451,10 +423,6 @@ RUN \
     'git+https://github.com/dive4dec/dive_ai@3b9e78f5adaa7c633c8eaf5c0ae392b1627683d6#subdirectory=dive_ai' \
     && \
     fix-permissions "${CONDA_DIR}"
-
-# Add Emscripten to PATH
-ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:${PATH}:/opt/cosmocc/bin"
-RUN chmod a+w /opt/emsdk/upstream/emscripten/cache
 
 WORKDIR "${HOME}"
 

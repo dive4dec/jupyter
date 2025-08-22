@@ -1,0 +1,1 @@
+c.AiMagics.default_language_model = "dive:chat"

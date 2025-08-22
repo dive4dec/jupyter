@@ -209,7 +209,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.12
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.3.0-1
+ARG MICROMAMBA_VERSION=2.3.1-0
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -309,12 +309,11 @@ RUN ARCH=$(dpkg --print-architecture) && \
     PIP_INDEX="" && \
     [ "$ARCH" = "amd64" ] && PIP_INDEX="--index-url https://download.pytorch.org/whl/cu128"; \
     pip install --quiet --no-cache-dir \
-        'torch==2.7.*' \
-        'torchvision==0.22.*' \
-        'torchaudio==2.7.*' \
+        'torch==2.8.*' \
+        'torchvision==0.23.*' \
+        'torchaudio==2.8.*' \
         $PIP_INDEX && \
     fix-permissions "${CONDA_DIR}"
-
 
 # Install Jupyter Notebook, Lab, and Hub
 RUN \
@@ -481,14 +480,14 @@ RUN mamba install --quiet --yes \
     pip install --quiet --no-cache-dir \
     --no-build-isolation \
     'langchain-ollama==0.3.*' \
-    'sentence-transformers==4.1.*' \
-    'transformers==4.53.*' \
-    'accelerate==1.8.*' \
-    'tiktoken==0.9.*' \
-    'huggingface_hub==0.33.*' \
+    'sentence-transformers==5.1.*' \
+    'transformers==4.55.*' \
+    'accelerate==1.10.*' \
+    'bitsandbytes==0.47.*' \
+    'tiktoken==0.11.*' \
+    'huggingface_hub==0.34.*' \
     'datasets==4.0.*' \
-    'optimum==1.26.*' \
-    'bitsandbytes==0.46.*' \
+    'optimum==1.27.*' \
     'gptqmodel==2.2.*' \
     # 'datatrove==0.5.*' \
     # 'evaluate==0.4.*' \
@@ -618,9 +617,9 @@ RUN for ext in \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.28.5 \
-    GitHub.copilot@1.342.0 \
-    Continue.continue@1.0.17 \
+    GitHub.copilot-chat@0.30.2 \
+    GitHub.copilot@1.350.0 \
+    Continue.continue@1.0.24 \
     ms-vsliveshare.vsliveshare@1.0.5857 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
@@ -628,7 +627,7 @@ RUN for ext in \
 
 RUN \
     mamba install --quiet --yes \
-    'gh=2.74.*' \
+    'gh=2.78.*' \
     'jupyter-ai=2.31.*' \
     && \
     # pip install --quiet --no-cache-dir --pre \
@@ -661,7 +660,7 @@ RUN \
     'duckdb=1.3.*' \
     && \
     pip install --quiet --no-cache-dir \
-    'marimo[recommended]==0.14.*' \
+    'marimo[recommended]==0.15.*' \
     'git+https://github.com/dive4dec/jupyter-marimo-proxy@a493c16de8e47a29c8f82ff65b10ee9ae393606c' \
     'kaleido==0.2.*' \
     # 'capymoa==0.8.*' \
@@ -718,7 +717,8 @@ ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
 
 # NbGrader
 ENV NBGRADER_UID=2000 \
-    NBGRADER_USER=nbgrader
+    NBGRADER_USER=nbgrader \
+    COURSE_ID=cs2310_25a
 
 # Create NBGRADER_USER with name nbgrader, UID=2000 and in the 'users' group
 # On jupyterhub, this user should be the owner of the course root and exchange folder for nbgrader.

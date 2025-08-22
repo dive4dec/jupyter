@@ -333,13 +333,14 @@
       "$ref": "#/definitions/preferences",
       "default": {
         "default_formatter": {
-          "python": ["isort", "black"],
+          "python": ["black"],
           "R": "formatR",
           "rust": "rustfmt",
           "c++11": "astyle",
           "c++14": "astyle",
           "c++17": "astyle",
-          "cpp": "astyle"
+          "cpp": "astyle",
+          "c++": "astyle"
         }
       }
     },
