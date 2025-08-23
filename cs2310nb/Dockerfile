@@ -670,6 +670,7 @@ RUN \
 
 RUN \
     mamba install --quiet --yes \
+    'jupyterlab_execute_time' \
     # Python
     # 'xeus-python' \
     # C, C++

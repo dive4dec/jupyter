@@ -8,10 +8,10 @@
 
 # Current information for different docker images
 # ===============================================
-cs1302nb := cs1302nb^0.2.0b
+cs1302nb := cs1302nb^0.2.0c
 cs1302nb_collab := $(cs1302nb)^collab
 cs1302nb_core := $(cs1302nb)^^core
-cs2310nb := cs2310nb^0.1.2e
+cs2310nb := cs2310nb^0.1.2f
 cs2310nb_min := $(cs2310nb)^^min
 
 cs2310nb_collab := $(cs2310nb)^collab
@@ -23,6 +23,7 @@ cs5483nb_collab := $(cs5483nb)^collab
 cs5483nb_core := $(cs5483nb)^^core
 cs5489nb := cs5489nb^0.1.0b
 cs5489nb_tf := $(cs5489nb)^^tf
+cs5495nb := cs5495nb^0.1.0c
 deepnb_collab := $(deepnb)^collab
 #
 # Syntax guide:

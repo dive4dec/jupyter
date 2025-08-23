@@ -390,6 +390,7 @@ RUN \
 
 RUN \
     mamba install --quiet --yes \
+    'jupyterlab_execute_time' \
     # Python
     # 'xeus-python' \
     # C, C++
@@ -439,6 +440,9 @@ COPY --chown="${NB_UID}:${NB_GID}" jupyterlab_code_formatter_settings.json "${CO
 COPY --chown=${NB_USER}:${NB_GID} ipython_config.py "${CONDA_DIR}/etc/ipython/ipython_config.py"
 # Jupyter Server
 COPY --chown="${NB_UID}:${NB_GID}" jupyter_server_config.d/ "${CONDA_DIR}/etc/jupyter/jupyter_server_config.d/"
+
+# Fix jupyterlab-myst link color
+COPY --chown="${NB_UID}:${NB_GID}" custom.css "${HOME}/.jupyter/custom/custom.css"
 
 # Disable news and update
 # See https://jupyterlab.readthedocs.io/en/stable/user/announcements.html
