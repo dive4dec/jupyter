@@ -14,7 +14,7 @@ RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
     rm -rf /tmp/install.sh
 
 USER ${NB_UID}
-# Install Tensorflow with pip
+
 RUN mamba install -c conda-forge --yes \
     'black' \
     'isort' \
@@ -29,19 +29,16 @@ RUN mamba install -c conda-forge --yes \
     fix-permissions "${CONDA_DIR}" && \
     fix-permissions "/home/${NB_USER}"
 
-# Tensorflow
-RUN pip install --quiet --no-cache-dir \
-    'tensorflow' \
-    'tf_keras' \
-    'tensorrt' \
-    && \
-    fix-permissions "${CONDA_DIR}"
-
 RUN pip install --no-cache-dir \
     'torch' \
     'torch-tensorrt' \
     'torchvision' \
     'torchaudio' \
+    'xgboost' \
+    'shap' \
+    'lime' \
+    'captum' \
+    'eli5' \
     'xgboost' \
     && \
     fix-permissions "${CONDA_DIR}" && \

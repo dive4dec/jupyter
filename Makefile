@@ -23,7 +23,7 @@ cs5483nb_collab := $(cs5483nb)^collab
 cs5483nb_core := $(cs5483nb)^^core
 cs5489nb := cs5489nb^0.1.0b
 cs5489nb_tf := $(cs5489nb)^^tf
-cs5495nb := cs5495nb^0.1.0c
+cs5495nb := cs5495nb^0.1.0d
 deepnb_collab := $(deepnb)^collab
 #
 # Syntax guide:
