@@ -185,6 +185,10 @@ RUN \
     && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# MIT Scheme
+COPY mit-scheme/ /tmp/mit-scheme/
+RUN bash /tmp/mit-scheme/buildscript.sh
+
 # For installing some jupyter kernels
 RUN apt-get update --yes && \
     apt-get install --yes --no-install-recommends libzmq3-dev
@@ -298,11 +302,11 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
 # Fix compatibility issues with AI tools
 RUN echo "packaging<25" >> "${CONDA_DIR}/conda-meta/pinned"
 
-# Tensorflow
-RUN pip install --quiet --no-cache-dir \
-    'tensorflow==2.19.*' \
-    && \
-    fix-permissions "${CONDA_DIR}"
+# # Tensorflow
+# RUN pip install --quiet --no-cache-dir \
+#     'tensorflow==2.19.*' \
+#     && \
+#     fix-permissions "${CONDA_DIR}"
 
 # PyTorch
 RUN ARCH=$(dpkg --print-architecture) && \
@@ -489,17 +493,6 @@ RUN mamba install --quiet --yes \
     'datasets==4.0.*' \
     'optimum==1.27.*' \
     'gptqmodel==2.2.*' \
-    # 'datatrove==0.5.*' \
-    # 'evaluate==0.4.*' \
-    # # TorchTune: https://github.com/pytorch/torchtune
-    # 'torchtune==0.6.*' \
-    # 'chromadb==0.5.*' \
-    # 'flax==0.10.*' \
-    # 'tensorflow-datasets==4.9.*' \
-    # 'tensorflow-hub==0.16.*' \
-    # 'tensorflowjs==4.22.*' \
-    # 'tensorflow-decision-forests==1.11.*' \
-    # 'auto-gptq==0.7.*' \
     && \
     # MLC: https://llm.mlc.ai/docs/get_started/introduction.html
     # MLC Wasm: https://llm.mlc.ai/docs/install/emcc.html 
@@ -683,43 +676,19 @@ RUN \
     mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
 
-# # Fix issue of packaging version being None after downgrade
-# # This is caused by installing langchain above 
-# RUN rm -rf /opt/conda/lib/python3.12/packaging-25.0.dist-info
-
-# ----------------------------------------------------------
-
-FROM foundation AS prod
-
-COPY --from=base /etc/ /etc/
-COPY --from=base /usr/ /usr/
-COPY --from=base /var/ /var/
-COPY --from=base /home/ /home/
-COPY --from=base /opt/ /opt/
-
-# set Mamba root prefix
-ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
+FROM base AS prod
 
 # Configure container startup
 ENTRYPOINT ["tini", "-g", "--", "micromamba", "run", "-n", "base"]
 # Configure container startup
 CMD ["start-notebook.sh"]
 
-ENV JUPYTER_PORT=8888
-EXPOSE $JUPYTER_PORT
-
-### Tensorflow
-# minor issues: 
-# https://github.com/tensorflow/tensorflow/issues/63109
-ENV TF_CPP_MIN_LOG_LEVEL=2
-
-# https://github.com/tensorflow/tensorboard/pull/3674
-ENV TENSORBOARD_PROXY_URL="/proxy/%PORT%/"
 
 # NbGrader
 ENV NBGRADER_UID=2000 \
-    NBGRADER_USER=nbgrader \
-    COURSE_ID=cs2310_25a
+    NBGRADER_USER=nbgrader
+
+USER root
 
 # Create NBGRADER_USER with name nbgrader, UID=2000 and in the 'users' group
 # On jupyterhub, this user should be the owner of the course root and exchange folder for nbgrader.
