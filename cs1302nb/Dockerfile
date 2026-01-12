@@ -213,7 +213,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.12
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.3.1-0
+ARG MICROMAMBA_VERSION=2.5.0-1
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -324,9 +324,9 @@ RUN \
     mamba install --yes --quiet \
     # code-server requirement
     'nodejs==24.4.*' \
-    'notebook==7.4.*' \
-    'jupyterlab==4.4.*' \
-    'jupyterhub==5.3.*' \
+    'notebook==7.5.*' \
+    'jupyterlab==4.5.*' \
+    'jupyterhub==5.4.*' \
     && \
     # jupyter notebook --generate-config && \
     mamba clean --all -f -y && \
@@ -342,7 +342,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.103.1 && \
+    sh /tmp/install.sh --version 4.107.1 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -369,10 +369,10 @@ RUN \
     'openjdk=23.0.*' \
     'ant=1.10.*' \
     # Documentations
-    'jupyterlab-myst=2.4.*' \
-    'jupyterlite=0.6.*' \
-    'nbdev=2.4.*' \
-    'jupyterlite-sphinx=0.20.*' \ 
+    'jupyterlab-myst=2.6.*' \
+    'jupyterlite=0.7.*' \
+    'nbdev=2.3.*' \
+    'jupyterlite-sphinx=0.22.*' \ 
     && \
     pip install --quiet --no-cache-dir \
     'calysto-scheme==1.4.*' \
@@ -443,7 +443,7 @@ RUN mamba install --quiet --yes \
 # Documentations with MyST
 RUN \
     npm install -g \
-    mystmd@1.5.1 \
+    mystmd@1.7.1 \
     && \
     npm cache clean --force
 
@@ -555,7 +555,7 @@ RUN mamba install --quiet --yes \
 # Other UI enhancements
 RUN \
     mamba install --quiet --yes \
-    'jupyter-archive' \
+    'jupyter-archive=3.4.*' \
     # && \
     # pip install --quiet --no-cache-dir \
     # 'jupyterlab-unfold==0.3.*' \
@@ -620,7 +620,7 @@ RUN for ext in \
 
 RUN \
     mamba install --quiet --yes \
-    'gh=2.78.*' \
+    'gh=2.83.*' \
     'jupyter-ai=2.31.*' \
     && \
     # pip install --quiet --no-cache-dir --pre \
@@ -653,7 +653,7 @@ RUN \
     'duckdb=1.3.*' \
     && \
     pip install --quiet --no-cache-dir \
-    'marimo[recommended]==0.15.*' \
+    'marimo[recommended]==0.19.*' \
     'git+https://github.com/dive4dec/jupyter-marimo-proxy@a493c16de8e47a29c8f82ff65b10ee9ae393606c' \
     'kaleido==0.2.*' \
     # 'capymoa==0.8.*' \
@@ -751,10 +751,10 @@ USER ${NB_USER}
 # Collaboration
 RUN \
     mamba install --quiet --yes \
-    'jupyter-collaboration=4.1.*' \
+    'jupyter-collaboration=4.2.*' \
     && \
     pip install --pre --quiet --no-cache-dir \
-    'jupyterlab-chat==0.17.*' \
+    'jupyterlab-chat==0.18.*' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"

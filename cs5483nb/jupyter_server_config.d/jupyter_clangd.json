@@ -1,0 +1,13 @@
+{
+  "LanguageServerManager": {
+    "language_servers": {
+      "clangd": {
+        "version": 2,
+        "argv": ["/usr/bin/clangd", "--background-index"],
+        "languages": ["c++src", "csrc"],
+        "mime_types": ["text/x-c++src", "text/x-csrc"],
+        "display_name": "clangd"
+      }
+    }
+  }
+}
