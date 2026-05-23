@@ -9,3 +9,9 @@ See https://github.com/jupyter-book/jupyterlab-myst/issues/248 */
 .jp-ThemedContainer a {
     color: var(--jp-brand-color1) !important;
 }
+
+/* Duplicate headers bug workaround triggered by jupyter-ai>=3 and jupyterlab-myst. 
+See https://github.com/jupyter-book/jupyterlab-myst/issues/229 */
+.myst-fm-block:has(+ :is(h1, h2, h3, h4, h5, h6)) {
+display: none;
+}

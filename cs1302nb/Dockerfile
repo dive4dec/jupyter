@@ -213,7 +213,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.12
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.5.0-1
+ARG MICROMAMBA_VERSION=2.6.2-1
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -342,7 +342,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.107.1 && \
+    sh /tmp/install.sh --version 4.118.0 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -366,18 +366,18 @@ USER ${NB_UID}
 RUN \
     mamba install --quiet --yes \
     # Java
-    'openjdk=23.0.*' \
+    'openjdk=23.*' \
     'ant=1.10.*' \
     # Documentations
     'jupyterlab-myst=2.6.*' \
     'jupyterlite=0.7.*' \
-    'nbdev=2.3.*' \
-    'jupyterlite-sphinx=0.22.*' \ 
+    # 'nbdev=2.3.*' \
+    'jupyterlite-sphinx=0.22.*' \
     && \
     pip install --quiet --no-cache-dir \
     'calysto-scheme==1.4.*' \
     # Documentations
-    'jupyterlab-quarto==0.3.*' \
+    # 'jupyterlab-quarto==0.3.*' \
     && \
     # scheme kernel
     python -m calysto_scheme install --sys-prefix && \
@@ -389,8 +389,9 @@ RUN \
     rm -rf /tmp/ijava \
     && \
     mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}" && \
-    npm cache clean --force
+    npm cache clean --force && \
+    fix-permissions "${CONDA_DIR}"
+
 
 # Other packages needed by the course
 RUN mamba install --quiet --yes \
@@ -406,7 +407,7 @@ RUN mamba install --quiet --yes \
 
 RUN mamba install --quiet --yes \
     'websockify=0.13.*' \
-    'jupyter-vscode-proxy=0.6' \
+    'jupyter-vscode-proxy=0.7.*' \
     'jupytext=1.17.*' \
     'black=25.1.*' \
     'jupyterlab_code_formatter=3.0.*' \
@@ -417,7 +418,7 @@ RUN mamba install --quiet --yes \
     && \
     pip install --quiet --no-cache-dir \
     # 'jupyterlab_filesystem_access==0.6.*' \
-    'python-lsp-server[all]==1.12.*' \
+    'python-lsp-server[all]==1.13.*' \
     # 'clangd==20.1.*' \
     # 'clang-format==20.1.*' \
     'astyle==3.6.*' \
@@ -458,7 +459,7 @@ RUN pip install --quiet --no-cache-dir \
 
 # Support virtual environments in jupyter notebook
 RUN mamba install --quiet --yes \
-    'ipykernel=6.29.*' \
+    'ipykernel=7.2.*' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
@@ -473,12 +474,12 @@ RUN mamba install --quiet --yes \
     'langchain-openai=0.3.*' \
     'langchain-community=0.3.*' \
     \
-    'git-lfs=3.6.*' \
+    'git-lfs=3.7.*' \
     \
-    'nvitop=1.5.*' \
+    'nvitop=1.7.*' \
     'gpustat=1.1.*' \
     \
-    'pyarrow=20.0.*' \
+    'pyarrow=23.0.*' \
     'pypdf2=3.0.*' \
     && \
     pip install --quiet --no-cache-dir \
@@ -508,10 +509,10 @@ USER root
 # See: 
 #   https://emscripten.org/docs/getting_started/downloads.html
 #   https://llm.mlc.ai/docs/install/emcc.html
-RUN wget https://github.com/emscripten-core/emsdk/archive/refs/tags/4.0.10.tar.gz && \
-    tar -xzf 4.0.10.tar.gz && \
-    rm 4.0.10.tar.gz && \
-    mv emsdk-4.0.10 /opt/emsdk && \
+RUN wget https://github.com/emscripten-core/emsdk/archive/refs/tags/5.0.7.tar.gz && \
+    tar -xzf 5.0.7.tar.gz && \
+    rm 5.0.7.tar.gz && \
+    mv emsdk-5.0.7 /opt/emsdk && \
     cd /opt/emsdk && \
     fix-permissions /opt/emsdk && \
     chmod +x emsdk && \
@@ -575,7 +576,7 @@ RUN pip install --quiet --no-cache-dir \
 RUN pip install --quiet --no-cache-dir \
     # not compatible with jupyterlab-myst
     # 'jupyterlab_rise==0.42.*' \
-    'jupyterlab-deck==0.2.*' && \
+    'custom-slideshow' && \
     fix-permissions "${CONDA_DIR}"
 
 # Copy local files as late as possible to avoid cache busting
@@ -610,23 +611,25 @@ RUN for ext in \
     done
 
 RUN for ext in \
-    GitHub.copilot-chat@0.30.2 \
-    GitHub.copilot@1.350.0 \
-    Continue.continue@1.0.24 \
-    ms-vsliveshare.vsliveshare@1.0.5857 \
+    # GitHub.copilot-chat@0.30.2 \
+    # GitHub.copilot@1.350.0 \
+    Continue.continue@1.2.22 \
+    # ms-vsliveshare.vsliveshare@1.0.5857 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done
 
 RUN \
-    mamba install --quiet --yes \
-    'gh=2.83.*' \
-    'jupyter-ai=2.31.*' \
-    && \
+    # mamba install --quiet --yes \
+    # 'gh=2.83.*' \
+    # && \
     # pip install --quiet --no-cache-dir --pre \
     # 'jupyter-ai==3.0.0b0' \
     # && \
     pip install --quiet --no-cache-dir \
+    'jupyter-ai==3.0.*' \
+    'jupyter-ai-jupyternaut' \
+    'jupyter-ai-magic-commands' \
     'divewidgets' \
     # 'nbgrader==0.9.*' \
     'nbgrader@git+https://github.com/dive4dec/nbgrader.git@8e0b69a6da48856e6f180d27041b6e1c96602934' \
@@ -647,13 +650,13 @@ USER ${NB_UID}
 
 RUN \
     mamba install --quiet --yes \
-    'plotly=6.1.*' \
-    'sqlglot=26.22.*' \
-    'polars=1.30.*' \
+    'plotly=6.6.*' \
+    'sqlglot=28.10.*' \
+    'polars=1.39.*' \
     'duckdb=1.3.*' \
     && \
     pip install --quiet --no-cache-dir \
-    'marimo[recommended]==0.19.*' \
+    'marimo[recommended]==0.23.*' \
     'git+https://github.com/dive4dec/jupyter-marimo-proxy@a493c16de8e47a29c8f82ff65b10ee9ae393606c' \
     'kaleido==0.2.*' \
     # 'capymoa==0.8.*' \
@@ -717,8 +720,8 @@ COPY --chown="${NB_UID}:${NB_GID}" kernels/ "${CONDA_DIR}/share/jupyter/kernels/
 COPY --chown="${NB_UID}:${NB_GID}" jupyterlab_code_formatter_settings.json "${CONDA_DIR}/share/jupyter/labextensions/jupyterlab_code_formatter/schemas/jupyterlab_code_formatter/settings.json"
 # Jupyter LSP
 COPY --chown="${NB_UID}:${NB_GID}" jupyterlab_code_formatter_settings.json "${CONDA_DIR}/share/jupyter/labextensions/@jupyter-lsp/jupyterlab-lsp/schemas/@jupyter-lsp/jupyterlab-lsp/diagnostics.json"
-# IPython config
-COPY --chown=${NB_USER}:${NB_GID} ipython_config.py "${CONDA_DIR}/etc/ipython/ipython_config.py"
+# # IPython config
+# COPY --chown=${NB_USER}:${NB_GID} ipython_config.py "${CONDA_DIR}/etc/ipython/ipython_config.py"
 # Jupyter Server
 COPY --chown="${NB_UID}:${NB_GID}" jupyter_server_config.d/ "${CONDA_DIR}/etc/jupyter/jupyter_server_config.d/"
 
@@ -751,10 +754,10 @@ USER ${NB_USER}
 # Collaboration
 RUN \
     mamba install --quiet --yes \
-    'jupyter-collaboration=4.2.*' \
+    'jupyter-collaboration=4.3.*' \
     && \
     pip install --pre --quiet --no-cache-dir \
-    'jupyterlab-chat==0.18.*' \
+    'jupyterlab-chat==0.22.*' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
