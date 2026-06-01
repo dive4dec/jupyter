@@ -619,6 +619,15 @@ RUN for ext in \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
     done
 
+# ACP Client extension for Hermes Agent (and other ACP-compatible agents)
+RUN install-vscode-extension "formulahendry.acp-client@0.2.0" --extensions-dir /usr/lib/code-server/lib/vscode/extensions && \
+    # Patch the extension to fix code-server compatibility:
+    # vscode.env.navigator throws in code-server's Node.js env; use global `navigator` instead
+    sed -i 's/bn=ln(dn,\["navigator"\])/bn=function(){return navigator}/' \
+        /usr/lib/code-server/lib/vscode/extensions/formulahendry.acp-client-*/dist/extension.js
+
+USER ${NB_UID}
+
 RUN \
     # mamba install --quiet --yes \
     # 'gh=2.83.*' \
@@ -646,7 +655,69 @@ USER root
 # Ollama
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
+# ============================================================
+# Install Hermes Agent
+# ============================================================
+
+# System dependencies Hermes needs (ripgrep for file search, tmux for sub-agents)
+RUN apt-get update && \
+    apt-get install --yes --no-install-recommends \
+    ripgrep \
+    tree \
+    tmux \
+    && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Store default Hermes config OUTSIDE $HOME so it survives persistent volume mount
+RUN mkdir -p /opt/hermes-config && \
+    cat <<'EOF' > /opt/hermes-config/config.yaml
+model:
+  default: openrouter/anthropic/claude-sonnet-4-20250514
+  provider: openrouter
+
+terminal:
+  backend: local
+  timeout: 300
+
+agent:
+  max_turns: 90
+
+delegation:
+  max_concurrent_children: 3
+EOF
+
+
+# Fix permissions on home directory (Hermes install may create root-owned files)
+RUN fix-permissions "${HOME}"
+
+# First-run init script: copies defaults to ~/.hermes/ only on first login
+# On subsequent logins, the student's persistent ~/.hermes/ is preserved
+RUN cat <<'SCRIPT' > /usr/local/bin/hermes-init && \
+    chmod +x /usr/local/bin/hermes-init
+#!/bin/bash
+
+# Initialize Hermes config on first run if ~/.hermes doesn't exist
+if [ ! -d "$HOME/.hermes" ]; then
+    mkdir -p "$HOME/.hermes"
+    if [ -f /opt/hermes-config/config.yaml ] && [ ! -f "$HOME/.hermes/config.yaml" ]; then
+        cp /opt/hermes-config/config.yaml "$HOME/.hermes/config.yaml"
+    fi
+fi
+SCRIPT
+
+# Add Hermes bash completion and auto-init to system bashrc
+RUN cat <<'EOF' >> /etc/bash.bashrc
+# Hermes Agent: auto-init on first login, then enable completion
+hermes-init 2>/dev/null
+if command -v hermes &> /dev/null; then
+  eval "$(hermes completion bash)" 2>/dev/null
+fi
+EOF
+
 USER ${NB_UID}
+
+# Run Hermes init as jovyan so ~/.hermes/ is created with correct ownership
+RUN hermes-init
 
 RUN \
     mamba install --quiet --yes \
@@ -742,6 +813,32 @@ RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 # Add Emscripten and CUDA to PATH
 ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:/usr/local/cuda/bin:${PATH}:/opt/cosmocc/bin"
 RUN chmod a+w /opt/emsdk/upstream/emscripten/cache
+
+
+# Late installs: Hermes (system-wide) + jupyter-ai-hermes
+# Kept late to minimize rebuild time when these packages update
+# ============================================================
+# Hermes Agent — installed directly via pip into the conda environment.
+# This puts `hermes` on /opt/conda/bin/ where both JupyterLab kernels/terminals
+# and code-server subprocesses can find it.  Using pip directly avoids the
+# install.sh script which creates its own isolated venv and downloads its own
+# Python — both undesirable in a container with a shared conda env.
+# Pinned to specific version for reproducible builds.
+# Update by changing the --tag below and rebuilding.
+# Check latest tags: https://github.com/NousResearch/hermes-agent/tags
+# Node.js, ripgrep, tmux, ffmpeg are installed earlier as system deps.
+RUN pip install --quiet --no-cache-dir \
+    'git+https://github.com/NousResearch/hermes-agent.git@v2026.5.29.2' \
+    && \
+    fix-permissions "${CONDA_DIR}"
+
+# jupyter-ai-hermes: the JupyterLab AI extension that integrates Hermes as a persona
+RUN pip install --quiet --no-cache-dir \
+    'jupyter-ai-hermes' \
+    && \
+    fix-permissions "${CONDA_DIR}"
+
+
 
 WORKDIR "${HOME}"
 
