@@ -355,27 +355,25 @@ RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
     rm -rf ~/.cache/code-server/ && \
     rm -rf /tmp/install.sh
 
-
-
-# # See https://apt.llvm.org/
-# RUN wget https://apt.llvm.org/llvm.sh && \
-#     chmod +x llvm.sh && \
-#     sudo ./llvm.sh 22 all && \
-#     rm -rf llvm.sh && \
-#     for cmd in $(dpkg -L clang-format-22 clang-tidy-22 clang-22 clangd-22 lld-22 lldb-22 llvm-22 | grep '^/usr/bin/.*-22$'); do \
-#       base=$(basename "$cmd"); \
-#       base=${base%-22}; \
-#       update-alternatives --install "/usr/bin/$base" "$base" "$cmd" 200; \
-#     done
+# See https://apt.llvm.org/
+RUN wget https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    ./llvm.sh 22 all && \
+    rm -rf llvm.sh && \
+    for cmd in $(dpkg -L clang-format-22 clang-tidy-22 clang-22 clangd-22 lld-22 lldb-22 llvm-22 | grep '^/usr/bin/.*-22$'); do \
+      base=$(basename "$cmd"); \
+      base=${base%-22}; \
+      update-alternatives --install "/usr/bin/$base" "$base" "$cmd" 200; \
+    done
 
 USER ${NB_UID}
 
-### Clang ###
-RUN mamba install --quiet --yes \
-    'clang=22.*' 'clang-tools=22.*' 'gxx_linux-64' && \
-    ln -sf ${CONDA_DIR}/bin/clang++-22 ${CONDA_DIR}/bin/clang++ && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
+# ### Clang ###
+# RUN mamba install --quiet --yes \
+#     'clang=22.*' 'clang-tools=22.*' 'gxx_linux-64' && \
+#     ln -sf ${CONDA_DIR}/bin/clang++-22 ${CONDA_DIR}/bin/clang++ && \
+#     mamba clean --all -f -y && \
+#     fix-permissions "${CONDA_DIR}"
 
 # Programming languages support
 RUN \
