@@ -88,6 +88,15 @@ RUN apt-get update --yes && \
     xclip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# System dependencies Hermes needs (ripgrep for file search, tmux for sub-agents)
+RUN apt-get update && \
+    apt-get install --yes --no-install-recommends \
+    ripgrep \
+    tree \
+    tmux \
+    && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Dependencies for mystmd
 RUN \
     apt-get update --yes && \
@@ -99,7 +108,6 @@ RUN \
     paperconfig -p a4 \
     && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
-
 
 # Desktop
 RUN \
@@ -131,7 +139,6 @@ RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor 
     apt-get install --yes code && \
     apt-get clean && rm -rf /var/lib/apt/lists/* microsoft.gpg
 
-
 # Install Firefox Nightly
 RUN add-apt-repository ppa:ubuntu-mozilla-daily/ppa && \
     apt-get update --yes && \
@@ -160,7 +167,7 @@ RUN echo -e '#!/bin/bash\nexec /usr/bin/firefox-trunk --no-sandbox "$@"' > /usr/
 
 # Install TurboVNC based on the current architecture
 RUN ARCH=$(dpkg --print-architecture) && \
-    wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.2/turbovnc_3.2_${ARCH}.deb" -O /tmp/turbovnc.deb && \
+    wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.3/turbovnc_3.3_${ARCH}.deb" -O /tmp/turbovnc.deb && \
     apt-get update --yes && \
     apt-get install --yes --no-install-recommends /tmp/turbovnc.deb && \
     rm /tmp/turbovnc.deb && \
@@ -213,7 +220,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.12
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.6.2-1
+ARG MICROMAMBA_VERSION=2.7.0-0
 
 # Download and install Micromamba, and initialize Conda prefix.
 #   <https://github.com/mamba-org/mamba#micromamba>
@@ -299,8 +306,8 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
         fix-permissions "${CONDA_DIR}" && \
         fix-permissions "/home/${NB_USER}"
 
-# Fix compatibility issues with AI tools
-RUN echo "packaging<25" >> "${CONDA_DIR}/conda-meta/pinned"
+# # Fix compatibility issues with AI tools
+# RUN echo "packaging<25" >> "${CONDA_DIR}/conda-meta/pinned"
 
 # # Tensorflow
 # RUN pip install --quiet --no-cache-dir \
@@ -313,9 +320,9 @@ RUN ARCH=$(dpkg --print-architecture) && \
     PIP_INDEX="" && \
     [ "$ARCH" = "amd64" ] && PIP_INDEX="--index-url https://download.pytorch.org/whl/cu128"; \
     pip install --quiet --no-cache-dir \
-        'torch==2.8.*' \
-        'torchvision==0.23.*' \
-        'torchaudio==2.8.*' \
+        'torch==2.11.*' \
+        'torchvision==0.26.*' \
+        'torchaudio==2.11.*' \
         $PIP_INDEX && \
     fix-permissions "${CONDA_DIR}"
 
@@ -323,7 +330,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 RUN \
     mamba install --yes --quiet \
     # code-server requirement
-    'nodejs==24.4.*' \
+    'nodejs==24.*' \
     'notebook==7.5.*' \
     'jupyterlab==4.5.*' \
     'jupyterhub==5.4.*' \
@@ -342,25 +349,33 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.118.0 && \
+    sh /tmp/install.sh --version 4.123.0 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
     rm -rf /tmp/install.sh
 
-### Clang ###
-# See https://apt.llvm.org/
-RUN wget https://apt.llvm.org/llvm.sh && \
-    chmod +x llvm.sh && \
-    sudo ./llvm.sh 20 all && \
-    rm -rf llvm.sh && \
-    for cmd in $(dpkg -L clang-format-20 clang-tidy-20 clang-20 clangd-20 lld-20 lldb-20 llvm-20 | grep '^/usr/bin/.*-20$'); do \
-      base=$(basename "$cmd"); \
-      base=${base%-20}; \
-      update-alternatives --install "/usr/bin/$base" "$base" "$cmd" 200; \
-    done
+
+
+# # See https://apt.llvm.org/
+# RUN wget https://apt.llvm.org/llvm.sh && \
+#     chmod +x llvm.sh && \
+#     sudo ./llvm.sh 22 all && \
+#     rm -rf llvm.sh && \
+#     for cmd in $(dpkg -L clang-format-22 clang-tidy-22 clang-22 clangd-22 lld-22 lldb-22 llvm-22 | grep '^/usr/bin/.*-22$'); do \
+#       base=$(basename "$cmd"); \
+#       base=${base%-22}; \
+#       update-alternatives --install "/usr/bin/$base" "$base" "$cmd" 200; \
+#     done
 
 USER ${NB_UID}
+
+### Clang ###
+RUN mamba install --quiet --yes \
+    'clang=22.*' 'clang-tools=22.*' 'gxx_linux-64' && \
+    ln -sf ${CONDA_DIR}/bin/clang++-22 ${CONDA_DIR}/bin/clang++ && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
 
 # Programming languages support
 RUN \
@@ -395,11 +410,11 @@ RUN \
 
 # Other packages needed by the course
 RUN mamba install --quiet --yes \
-    'manim=0.19.*' \
+    'manim=0.20.*' \
     'manimpango=0.6.*' \
-    'pandas=2.2.*' \
+    'pandas=2.3.*' \
     'matplotlib-base=3.10.*' \
-    'ipympl=0.9.*' \
+    'ipympl=0.10.*' \
     'sympy=1.14.*' \
     && \
     mamba clean --all -f -y && \
@@ -408,17 +423,17 @@ RUN mamba install --quiet --yes \
 RUN mamba install --quiet --yes \
     'websockify=0.13.*' \
     'jupyter-vscode-proxy=0.7.*' \
-    'jupytext=1.17.*' \
+    'jupytext=1.18.*' \
     'black=25.1.*' \
     'jupyterlab_code_formatter=3.0.*' \
-    'jupyterlab-lsp=5.1.*' \
-    'jupyter-resource-usage=1.1.*' \
-    'nbgitpuller==1.2.*' \
-    'jupyterlab-git==0.51.*' \
+    'jupyterlab-lsp=5.2.*' \
+    'jupyter-resource-usage=1.2.*' \
+    'nbgitpuller==1.3.*' \
+    'jupyterlab-git==0.52.*' \
     && \
     pip install --quiet --no-cache-dir \
     # 'jupyterlab_filesystem_access==0.6.*' \
-    'python-lsp-server[all]==1.13.*' \
+    'python-lsp-server[all]==1.14.*' \
     # 'clangd==20.1.*' \
     # 'clang-format==20.1.*' \
     'astyle==3.6.*' \
@@ -444,7 +459,7 @@ RUN mamba install --quiet --yes \
 # Documentations with MyST
 RUN \
     npm install -g \
-    mystmd@1.7.1 \
+    mystmd@1.9.1 \
     && \
     npm cache clean --force
 
@@ -466,12 +481,9 @@ RUN mamba install --quiet --yes \
 
 # # AI
 RUN mamba install --quiet --yes \
-    # See https://github.com/huggingface/transformers/issues/38442
-    'numpy<2.0.0' \
-    \
     # Langchain: https://python.langchain.com/docs/how_to/installation/
-    'langchain=0.3.*' \
-    'langchain-openai=0.3.*' \
+    'langchain=1.3.*' \
+    'langchain-openai=1.3.*' \
     'langchain-community=0.3.*' \
     \
     'git-lfs=3.7.*' \
@@ -479,20 +491,20 @@ RUN mamba install --quiet --yes \
     'nvitop=1.7.*' \
     'gpustat=1.1.*' \
     \
-    'pyarrow=23.0.*' \
+    'pyarrow=24.0.*' \
     'pypdf2=3.0.*' \
     && \
     pip install --quiet --no-cache-dir \
     --no-build-isolation \
-    'langchain-ollama==0.3.*' \
-    'sentence-transformers==5.1.*' \
+    'langchain-ollama==1.1.*' \
+    'sentence-transformers==5.5.*' \
     'transformers==4.55.*' \
-    'accelerate==1.10.*' \
-    'bitsandbytes==0.47.*' \
-    'tiktoken==0.11.*' \
-    'huggingface_hub==0.34.*' \
-    'datasets==4.0.*' \
-    'optimum==1.27.*' \
+    'accelerate==1.13.*' \
+    'bitsandbytes==0.49.*' \
+    'tiktoken==0.13.*' \
+    'huggingface_hub==1.17.*' \
+    'datasets==4.8.*' \
+    'optimum==2.1.*' \
     'gptqmodel==2.2.*' \
     && \
     # MLC: https://llm.mlc.ai/docs/get_started/introduction.html
@@ -509,15 +521,29 @@ USER root
 # See: 
 #   https://emscripten.org/docs/getting_started/downloads.html
 #   https://llm.mlc.ai/docs/install/emcc.html
-RUN wget https://github.com/emscripten-core/emsdk/archive/refs/tags/5.0.7.tar.gz && \
-    tar -xzf 5.0.7.tar.gz && \
-    rm 5.0.7.tar.gz && \
-    mv emsdk-5.0.7 /opt/emsdk && \
-    cd /opt/emsdk && \
-    fix-permissions /opt/emsdk && \
-    chmod +x emsdk && \
-    ./emsdk install latest && \
-    ./emsdk activate latest
+RUN curl -fsSL -o /tmp/emsdk.tar.gz https://github.com/emscripten-core/emsdk/archive/refs/tags/6.0.0.tar.gz && \
+    tar -xzf /tmp/emsdk.tar.gz -C /opt && \
+    mv /opt/emsdk-6.0.0 /opt/emsdk && \
+    rm /tmp/emsdk.tar.gz && \
+    chmod +x /opt/emsdk/emsdk && \
+    /opt/emsdk/emsdk install latest && \
+    /opt/emsdk/emsdk activate latest && \
+    fix-permissions /opt/emsdk
+
+# ### Emscripten ###
+# # Install Emscripten for MLC Wasm
+# # See: 
+# #   https://emscripten.org/docs/getting_started/downloads.html
+# #   https://llm.mlc.ai/docs/install/emcc.html
+# RUN wget https://github.com/emscripten-core/emsdk/archive/refs/tags/5.0.7.tar.gz && \
+#     tar -xzf 5.0.7.tar.gz && \
+#     rm 5.0.7.tar.gz && \
+#     mv emsdk-5.0.7 /opt/emsdk && \
+#     cd /opt/emsdk && \
+#     fix-permissions /opt/emsdk && \
+#     chmod +x emsdk && \
+#     ./emsdk install latest && \
+#     ./emsdk activate latest
 
 ### cosmocc ###
 # Install Cosmopolitan LibC
@@ -659,15 +685,6 @@ RUN curl -fsSL https://ollama.com/install.sh | sh
 # Install Hermes Agent
 # ============================================================
 
-# System dependencies Hermes needs (ripgrep for file search, tmux for sub-agents)
-RUN apt-get update && \
-    apt-get install --yes --no-install-recommends \
-    ripgrep \
-    tree \
-    tmux \
-    && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
 # Store default Hermes config OUTSIDE $HOME so it survives persistent volume mount
 RUN mkdir -p /opt/hermes-config && \
     cat <<'EOF' > /opt/hermes-config/config.yaml
@@ -723,8 +740,8 @@ RUN \
     mamba install --quiet --yes \
     'plotly=6.6.*' \
     'sqlglot=28.10.*' \
-    'polars=1.39.*' \
-    'duckdb=1.3.*' \
+    'polars=1.41.*' \
+    'duckdb=1.5.*' \
     && \
     pip install --quiet --no-cache-dir \
     'marimo[recommended]==0.23.*' \
@@ -737,15 +754,15 @@ RUN \
 
 RUN \
     mamba install --quiet --yes \
-    'jupyterlab_execute_time' \
+    'jupyterlab_execute_time=3.3.*' \
     # Python
     # 'xeus-python' \
     # C, C++
-    'xeus-cpp' \
+    'xeus-cpp=0.10.*' \
     # 'xeus-cling=0.15.*' \
-    'xtensor' \
+    'xtensor=0.27.*' \
     # 'xwidgets' \
-    'root' \
+    'root=6.40.*' \
     && \
     mamba clean --all -f -y && \    
     fix-permissions "${CONDA_DIR}"
