@@ -337,15 +337,6 @@ RUN pip install --quiet --no-cache-dir \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
-# Make system-installed xpra importable from conda Python.
-# xpra is installed via apt (system package) but jupyter-xprahtml5-proxy
-# runs under conda Python and needs to `import xpra` to bridge the WebSocket.
-RUN for d in /usr/lib/python3/dist-packages/xpra /usr/lib/python3/dist-packages/xpra-*.egg-info; do \
-        target=$(basename "$d"); \
-        ln -sfn "$d" "${CONDA_DIR}/lib/python3.12/site-packages/${target}"; \
-    done && \
-    fix-permissions "${CONDA_DIR}"
-
 # IPython kernel for virtualenvs
 RUN mamba install --quiet --yes 'ipykernel=7.2.*' && \
     mamba clean --all -f -y && \
