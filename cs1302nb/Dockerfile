@@ -538,8 +538,6 @@ RUN mamba install --quiet --yes \
 
 
 
-
-
 FROM base AS prod
 
 # Configure container startup
@@ -589,6 +587,26 @@ RUN pip install --quiet --no-cache-dir \
     'git+https://github.com/NousResearch/hermes-agent.git@v2026.5.29.2' \
     'jupyter-ai-hermes' \
     && \
+    fix-permissions "${CONDA_DIR}"
+
+USER root
+
+
+# Install xpra from official script (v6.x stable)
+RUN curl -fsSL https://xpra.org/get-xpra.sh | bash
+
+# Install ffmpeg and video codec support for xpra
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg libx264-dev libvpx-dev && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+USER ${NB_UID}
+
+# Xpra HTML5 proxy for JupyterLab
+RUN pip install --quiet --no-cache-dir \
+    'git+https://github.com/FZJ-JSC/jupyter-xprahtml5-proxy.git@v0.4.3' \
+    && \
+    mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
 WORKDIR "${HOME}"
