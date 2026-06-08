@@ -469,50 +469,6 @@ RUN pip install --quiet --no-cache-dir \
 USER root
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
-# ============================================================
-# Hermes Agent config + init script
-# ============================================================
-RUN mkdir -p /opt/hermes-config && \
-    cat <<'EOF' > /opt/hermes-config/config.yaml
-model:
-  default: openrouter/anthropic/claude-sonnet-4-20250514
-  provider: openrouter
-
-terminal:
-  backend: local
-  timeout: 300
-
-agent:
-  max_turns: 90
-
-delegation:
-  max_concurrent_children: 3
-EOF
-
-RUN fix-permissions "${HOME}"
-
-# First-run init script: copies defaults to ~/.hermes/ only on first login
-RUN cat <<'SCRIPT' > /usr/local/bin/hermes-init && \
-    chmod +x /usr/local/bin/hermes-init
-#!/bin/bash
-if [ ! -d "$HOME/.hermes" ]; then
-    mkdir -p "$HOME/.hermes"
-    if [ -f /opt/hermes-config/config.yaml ] && [ ! -f "$HOME/.hermes/config.yaml" ]; then
-        cp /opt/hermes-config/config.yaml "$HOME/.hermes/config.yaml"
-    fi
-fi
-SCRIPT
-
-# Add Hermes bash completion and auto-init to system bashrc
-RUN cat <<'EOF' >> /etc/bash.bashrc
-hermes-init 2>/dev/null
-if command -v hermes &> /dev/null; then
-  eval "$(hermes completion bash)" 2>/dev/null
-fi
-EOF
-
-USER ${NB_UID}
-RUN hermes-init
 
 # Plotly + data viz + marimo + JupyterLab extensions
 RUN mamba install --quiet --yes \
@@ -574,37 +530,34 @@ COPY --chown="${NB_UID}:${NB_GID}" jupyter_server_config.d/ "${CONDA_DIR}/etc/ju
 # Disable news and update announcements
 RUN jupyter labextension disable "@jupyterlab/apputils-extension:announcements"
 
-USER ${NB_UID}
-
 RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
+
+# Hermes Agent + jupyter-ai-hermes
+RUN curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --no-venv --dir "${CONDA_DIR}/hermes-agent" && \
+    ln -s "${CONDA_DIR}/hermes-agent/hermes" "${CONDA_DIR}/bin/hermes" && \
+    pip install --quiet --no-cache-dir \
+    'jupyter-ai-hermes' \
+    'jupyter-hermes-proxy' \
+    && \
+    fix-permissions "${CONDA_DIR}"
+
+# Build Hermes web UI (web_dist) — required for the dashboard served by jupyter-hermes-proxy
+# The installer does NOT include the web/ source, so we clone and build separately
+RUN git clone --depth 1 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-web-build && \
+    cd /tmp/hermes-web-build && \
+    npm install --workspace web && \
+    npm run build -w web && \
+    cp -r hermes_cli/web_dist /opt/conda/hermes-agent/hermes_cli/ && \
+    cd / && \
+    rm -rf /tmp/hermes-web-build
 
 # Add Emscripten, CUDA, CosmoCC to PATH
 ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:/usr/local/cuda/bin:${PATH}:/opt/cosmocc/bin"
 RUN chmod a+w /opt/emsdk/upstream/emscripten/cache
 
-# Hermes Agent + jupyter-ai-hermes
-RUN pip install --quiet --no-cache-dir \
-    'git+https://github.com/NousResearch/hermes-agent.git@v2026.5.29.2' \
-    'jupyter-ai-hermes' \
-    && \
-    fix-permissions "${CONDA_DIR}"
 
 WORKDIR "${HOME}"
 
-# ============================================================
-FROM prod AS collab
-
-USER ${NB_USER}
-
-# Collaboration
-RUN mamba install --quiet --yes \
-    'jupyter-collaboration=4.3.*' \
-    && \
-    pip install --pre --quiet --no-cache-dir \
-    'jupyterlab-chat==0.22.*' \
-    && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
 
 FROM prod AS default
 
