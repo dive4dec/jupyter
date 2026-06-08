@@ -171,6 +171,12 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
         fix-permissions "${CONDA_DIR}" && \
         fix-permissions "/home/${NB_USER}"
 
+# Install jupyterhub-litellm from pre-built wheel
+COPY jupyterhub_litellm-0.1.0-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir /tmp/jupyterhub_litellm-0.1.0-py3-none-any.whl && \
+    fix-permissions "${CONDA_DIR}" && \
+    fix-permissions "/home/${NB_USER}"
+
 COPY --chown="${NB_UID}:${NB_GID}" requirements.txt /tmp/requirements.txt
 
 RUN pip wheel \
