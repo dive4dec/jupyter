@@ -532,24 +532,41 @@ RUN jupyter labextension disable "@jupyterlab/apputils-extension:announcements"
 
 RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 
-# Hermes Agent + jupyter-ai-hermes
-RUN curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --no-venv --dir "${CONDA_DIR}/hermes-agent" && \
-    ln -s "${CONDA_DIR}/hermes-agent/hermes" "${CONDA_DIR}/bin/hermes" && \
-    pip install --quiet --no-cache-dir \
-    'jupyter-ai-hermes' \
-    'jupyter-hermes-proxy' \
-    && \
+# ============================================================
+# Hermes Agent (system-wide) + jupyter-ai-hermes + jupyter-hermes-proxy
+# ============================================================
+# Strategy:
+#   1. Clone hermes-agent source once, build web_dist, pip install into conda
+#   2. COPY submodule sources and pip install from local paths
+# This avoids curl|install.sh (which creates isolated venvs), symlinks,
+# and duplicate git clones.  The `hermes` command lands at /opt/conda/bin/
+# where both JupyterLab and code-server can find it.
+
+# Clone hermes-agent, build dashboard web_dist, and pip install into conda
+RUN git clone --depth 1 --branch v2026.5.29.2 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
+    # FIX v2026.5.29.2: pyproject.toml excludes hermes_cli.* subpackages (dashboard_auth, etc.)
+    sed -i 's/include = \["agent", "agent.\*", "tools", "tools.\*", "hermes_cli", "gateway"/include = ["agent", "agent.*", "tools", "tools.*", "hermes_cli", "hermes_cli.*", "gateway"/' /tmp/hermes-agent/pyproject.toml && \
+    # Build the dashboard web UI (required for jupyter-hermes-proxy)
+    cd /tmp/hermes-agent/web && \
+    npm install && \
+    npm run build && \
+    cd / && \
+    # Install hermes-agent into the conda environment
+    pip install --quiet --no-cache-dir /tmp/hermes-agent && \
+    rm -rf /tmp/hermes-agent && \
     fix-permissions "${CONDA_DIR}"
 
-# Build Hermes web UI (web_dist) — required for the dashboard served by jupyter-hermes-proxy
-# The installer does NOT include the web/ source, so we clone and build separately
-RUN git clone --depth 1 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-web-build && \
-    cd /tmp/hermes-web-build && \
-    npm install --workspace web && \
-    npm run build -w web && \
-    cp -r hermes_cli/web_dist /opt/conda/hermes-agent/hermes_cli/ && \
-    cd / && \
-    rm -rf /tmp/hermes-web-build
+# Install jupyter-ai-hermes and jupyter-hermes-proxy from build contexts
+# The Makefile passes --build-context for each submodule, avoiding symlinks
+# and the "too many links" buildkit error.
+COPY --from=jupyter-ai-hermes --chown=${NB_USER}:${NB_GID} . /tmp/jupyter-ai-hermes
+COPY --from=jupyter-hermes-proxy --chown=${NB_USER}:${NB_GID} . /tmp/jupyter-hermes-proxy
+RUN pip install --quiet --no-cache-dir \
+    /tmp/jupyter-ai-hermes \
+    /tmp/jupyter-hermes-proxy \
+    && \
+    rm -rf /tmp/jupyter-ai-hermes /tmp/jupyter-hermes-proxy && \
+    fix-permissions "${CONDA_DIR}"
 
 # Add Emscripten, CUDA, CosmoCC to PATH
 ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:/usr/local/cuda/bin:${PATH}:/opt/cosmocc/bin"
