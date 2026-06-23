@@ -262,7 +262,7 @@ RUN \
     mamba install --quiet --yes \
     'openjdk=23.*' \
     'ant=1.10.*' \
-    'jupyterlab-myst=2.6.*' \
+    'jupyterlab-myst=2.7.*' \
     'jupyterlite=0.7.*' \
     'jupyterlite-sphinx=0.22.*' \
     && \
@@ -327,7 +327,7 @@ RUN mamba install --quiet --yes \
     fix-permissions "${CONDA_DIR}"
 
 # MyST documentation tool
-RUN npm install -g mystmd@1.9.1 && \
+RUN npm install -g mystmd@1.10.1 && \
     npm cache clean --force
 
 # Remote desktop proxy
