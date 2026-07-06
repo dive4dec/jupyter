@@ -230,8 +230,8 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
     # -- Jupyter core + Node.js --
     mamba install --yes --quiet \
     'nodejs==24.*' \
-    'notebook==7.5.*' \
-    'jupyterlab==4.5.*' \
+    'notebook==7.6.*' \
+    'jupyterlab==4.6.*' \
     'jupyterhub==5.4.*' \
     && \
     mamba clean --all -f -y && \
@@ -247,7 +247,7 @@ USER root
 
 ### code-server ###
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.123.0 && \
+    sh /tmp/install.sh --version 4.127.0 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -408,7 +408,7 @@ RUN mamba install --quiet --yes \
     pip install --quiet --no-cache-dir \
     'jupyterlab_theme_solarized_dark' \
     'theme-darcula' \
-    'custom-slideshow' \
+    'sliveshow' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
@@ -572,6 +572,16 @@ RUN pip install --quiet --no-cache-dir \
 ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:/usr/local/cuda/bin:${PATH}:/opt/cosmocc/bin"
 RUN chmod a+w /opt/emsdk/upstream/emscripten/cache
 
+
+# Pin jupyter_server_documents to 0.3.0b0 — removes the custom notebook content
+# factory that was overriding jupyterlab-myst's MySTContentFactory, breaking
+# cross-cell references, math macros, and exercise counters.
+# Patch serverSideExecution to "false" — 0.3.0b0 hardcodes it to "true", which
+# routes cell execution through a server-side handler with allow_stdin=False,
+# breaking input(). The standard kernel WebSocket (with stdin support) is used instead.
+RUN pip install --quiet --no-cache-dir 'jupyter_server_documents==0.3.0b0' && \
+    sed -i 's/page_config\["serverSideExecution"\] = "true"/page_config\["serverSideExecution"\] = "false"/' "$(python3 -c 'import jupyter_server_documents.app as a; print(a.__file__)')" && \
+    fix-permissions "${CONDA_DIR}"
 
 WORKDIR "${HOME}"
 
