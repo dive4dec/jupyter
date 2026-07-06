@@ -416,6 +416,7 @@ RUN mamba install --quiet --yes \
 # Copy local files (scripts + configs)
 COPY start.sh /usr/local/bin/
 COPY start-notebook.sh start-singleuser.sh install-vscode-extension /usr/local/bin/
+COPY register_matrix_account.py /usr/local/bin/register-matrix-account
 COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 
 # Code-server extensions (built-in --install-extension)
