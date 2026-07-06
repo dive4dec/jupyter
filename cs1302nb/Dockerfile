@@ -543,9 +543,9 @@ RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 # where both JupyterLab and code-server can find it.
 
 # Clone hermes-agent, build dashboard web_dist, and pip install into conda
-RUN git clone --depth 1 --branch v2026.5.29.2 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
-    # FIX v2026.5.29.2: pyproject.toml excludes hermes_cli.* subpackages (dashboard_auth, etc.)
-    sed -i 's/include = \["agent", "agent.\*", "tools", "tools.\*", "hermes_cli", "gateway"/include = ["agent", "agent.*", "tools", "tools.*", "hermes_cli", "hermes_cli.*", "gateway"/' /tmp/hermes-agent/pyproject.toml && \
+RUN git clone --depth 1 --branch v2026.7.1 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
+    # v2026.7.1 requires setuptools>=77 for SPDX license expression
+    pip install --quiet --no-cache-dir 'setuptools>=77,<83' && \
     # Build the dashboard web UI (required for jupyter-hermes-proxy)
     cd /tmp/hermes-agent/web && \
     npm install && \
@@ -553,6 +553,13 @@ RUN git clone --depth 1 --branch v2026.5.29.2 https://github.com/NousResearch/he
     cd / && \
     # Install hermes-agent into the conda environment
     pip install --quiet --no-cache-dir /tmp/hermes-agent && \
+    # Install Matrix adapter dependencies (mautrix[encryption], etc.)
+    pip install --quiet --no-cache-dir \
+        'mautrix[encryption]==0.21.*' \
+        'aiosqlite==0.22.*' \
+        'asyncpg==0.31.*' \
+        'aiohttp-socks==0.11.*' \
+        && \
     rm -rf /tmp/hermes-agent && \
     fix-permissions "${CONDA_DIR}"
 
