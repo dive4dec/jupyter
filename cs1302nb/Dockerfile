@@ -590,9 +590,6 @@ RUN pip install --quiet --no-cache-dir 'jupyter_server_documents==0.3.0b0' && \
     sed -i 's/page_config\["serverSideExecution"\] = "true"/page_config\["serverSideExecution"\] = "false"/' "$(python3 -c 'import jupyter_server_documents.app as a; print(a.__file__)')" && \
     fix-permissions "${CONDA_DIR}"
 
-# Matrix account registration script (self-service, uses Synapse shared secret)
-COPY --chmod=0755 register_matrix_account.py /usr/local/bin/register-matrix-account
-
 WORKDIR "${HOME}"
 
 
