@@ -1,4 +1,4 @@
-ARG ROOT_CONTAINER=ubuntu:24.04
+ARG ROOT_CONTAINER=ubuntu:26.04
 
 FROM $ROOT_CONTAINER AS foundation
 
@@ -213,21 +213,27 @@ ENV MAMBA_ROOT_PREFIX=${CONDA_DIR}
 USER root
 
 # -----------------
-# For LDAP & RADIUS
+# For RADIUS authentication (pam_radius_auth v3.0.0 built from source)
+# Patched to skip Message-Authenticator verification (CityU NPS sends incorrect HMAC).
+# LDAP is dropped — all authentication goes through RADIUS.
 RUN apt-get update && \
     apt-get upgrade --yes && \
     apt-get install --yes --no-install-recommends \
-    libnss-ldap \
-    libpam-ldap \
-    libpam-radius-auth \
-    ldap-utils \
+    libpam-dev \
+    build-essential \
     sudo \
     && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-COPY etc/libnss-ldap.conf /etc/libnss-ldap.conf
-COPY etc/libnss-ldap.conf /etc/ldap.conf
-COPY etc/nsswitch.conf /etc/nsswitch.conf
+COPY pam_radius_auth/ /tmp/pam_radius_auth/
+RUN cd /tmp/pam_radius_auth && \
+    ./configure && \
+    make && \
+    make install && \
+    mkdir -p /lib/x86_64-linux-gnu/security && \
+    cp /usr/lib/security/pam_radius_auth.so /lib/x86_64-linux-gnu/security/ && \
+    rm -rf /tmp/pam_radius_auth
+
 COPY etc/pam_radius_auth.conf /etc/pam_radius_auth.conf
 COPY etc/pam.d /etc/pam.d
 

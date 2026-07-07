@@ -1,0 +1,223 @@
+name: "CI RPM"
+
+on:
+  push:
+    branches-ignore:
+      - coverity_scan
+  pull_request:
+
+env:
+  CI: 1
+  CI_TEST_USER: tapioca
+  CI_TEST_PASS: queijo
+  GH_ACTIONS: 1
+
+jobs:
+  pre-ci:
+    runs-on: ubuntu-latest
+    # Map a step output to a job output
+    outputs:
+      should_skip: ${{ steps.skip_check.outputs.should_skip }}
+    steps:
+      - id: skip_check
+        uses: fkirc/skip-duplicate-actions@master
+
+  rpm-build:
+    #  If branch protection is in place with status checks enabled, ensure
+    #  names are updated if new matrix entries are added or the name format
+    #  changes.
+    name: "RPM Build (${{ matrix.env.NAME }})"
+
+    needs: pre-ci
+    if: ${{ needs.pre-ci.outputs.should_skip != 'true' }}
+
+    runs-on: ubuntu-latest
+
+    container:
+      image: ${{ matrix.env.OS }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          - { "NAME": "rocky-8",  "OS": "rockylinux/rockylinux:8",       "DIST": "rocky"  }
+          - { "NAME": "rocky-9",  "OS": "rockylinux/rockylinux:9",       "DIST": "rocky"  }
+
+    steps:
+
+    - name: "Install prerequisites"
+      run: |
+        yum install -y \
+          bzip2 \
+          gcc \
+          git \
+          git-core \
+          hostname \
+          make \
+          openssl \
+          perl \
+          procps-ng \
+          psmisc \
+          rpm-build \
+          yum-utils
+
+    - uses: actions/checkout@v4
+      with:
+        lfs: false
+        path: pam_radius
+
+    - name: "Install build dependencies"
+      working-directory: pam_radius
+      run: |
+        yum-builddep -y redhat/pam_radius_auth.spec
+
+    - name: "Build pam_radius packages"
+      working-directory: pam_radius
+      run: |
+        make rpm
+
+    - name: "Install pam_radius package"
+      run: |
+        echo "#######################################################"
+        echo "# Install package"
+        rpm -ivh pam_radius/rpmbuild/RPMS/x86_64/pam*.rpm
+
+        echo "#######################################################"
+        echo "# Show package info"
+        rpm -qi pam_radius_auth
+
+        echo "#######################################################"
+        echo "# List package contents"
+        rpm -qs pam_radius_auth
+
+    - name: "Create test user"
+      run: |
+        useradd -d /tmp ${CI_TEST_USER}
+        id ${CI_TEST_USER}
+
+    - name: "Install packages for testing"
+      run: |
+        yum -y update
+        yum -y install \
+                    freeradius \
+                    freeradius-utils \
+                    openssh-server \
+                    rsyslog \
+                    sshpass
+
+    - name: "Setup FreeRADIUS, sshd, rsyslog and PAM"
+      working-directory: pam_radius
+      run: |
+        echo "#######################################################"
+        echo "# Kill services"
+        pkill -9 rsyslogd || :
+        pkill -9 freeradius || :
+        pkill -9 sshd || :
+
+        echo "#######################################################"
+        echo "# Run setup scripts"
+        export CI_TEST_USER="$CI_TEST_USER" CI_TEST_PASS="$CI_TEST_PASS"
+        for FILE in setup-rsyslog.sh setup-pam_radius.sh setup-freeradius.sh setup-sshd.sh; do
+            SCRIPT="${PWD}/scripts/ci/$FILE"
+
+            echo "Calling $FILE"
+            $SCRIPT
+        done
+
+        echo "#######################################################"
+        echo "# Start services"
+        /usr/sbin/rsyslogd
+        /usr/sbin/sshd
+        rm -f /run/nologin
+
+        ( make -C /etc/raddb/certs/ destroycerts all && \
+          sed 's/dh_file =/#dh_file =/g' -i /etc/raddb/mods-available/eap && \
+          chmod 0644 /etc/raddb/certs/server.pem
+        )
+        /usr/sbin/radiusd
+
+        echo "#######################################################"
+        echo "# Show processes"
+        ps -ef
+
+    - name: "Show config files"
+      run: |
+        for FILE in \
+            /etc/ssh/sshd_config \
+            /etc/pam.d/sshd \
+            /etc/pam_radius_auth.conf
+        do
+          echo "#####################################################"
+          echo "# $FILE"
+          echo
+          cat "$FILE"
+          echo
+        done
+
+    - name: "Positive authentication tests"
+      run: |
+        : > /var/log/auth.log
+
+        radtest -x "$CI_TEST_USER" "$CI_TEST_PASS" localhost 0 testing123
+
+        sshpass -p "${CI_TEST_PASS}" -v \
+            /usr/bin/ssh -T -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -p 22 ${CI_TEST_USER}@localhost \
+            "echo 'User logged in successfully' > /tmp/OK"
+        cat /tmp/OK
+
+        grep -q "pam_radius_auth: authentication succeeded" /var/log/auth.log
+        ! grep -q "pam_radius_auth: authentication failed" /var/log/auth.log
+
+    - name: "Show positive auth logs"
+      run: |
+        cat -n /var/log/auth.log
+
+    - name: "Negative authentication tests"
+      run: |
+        : > /var/log/auth.log
+
+        if radtest -x "$CI_TEST_USER" "not$CI_TEST_PASS" localhost 0 testing123; then
+          echo "Something bad happened - this radtest authentication should have failed"
+          exit 1
+        fi
+
+        if sshpass -p "not$CI_TEST_PASS" -v \
+            /usr/bin/ssh -T -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -p 22 ${CI_TEST_USER}@localhost \
+            "echo NOTOK > /tmp/NOTOK"; then
+          echo "Something bad happened - this ssh authentication should have failed"
+          exit 1
+        fi
+
+        grep -q "pam_radius_auth: authentication failed" /var/log/auth.log
+        ! grep -q "pam_radius_auth: authentication succeeded" /var/log/auth.log
+
+    - name: "Show negative auth logs"
+      if: ${{ success() || failure() }}
+      run: |
+        cat -n /var/log/auth.log
+
+    #
+    #  If the CI has failed and the branch is ci-debug then we start a tmate
+    #  session to provide interactive shell access to the session.
+    #
+    #  The SSH rendezvous point will be emitted continuously in the job output,
+    #  which will look something like:
+    #
+    #      SSH: ssh VfuX8SrNuU5pGPMyZcz7TpJTa@sfo2.tmate.io
+    #
+    #  For example:
+    #
+    #      git push origin ci-debug --force
+    #
+    #  Look at the job output in: https://github.com/FreeRADIUS/freeradius-server/actions
+    #
+    #      ssh VfuX8SrNuU5pGPMyZcz7TpJTa@sfo2.tmate.io
+    #
+    #  Access requires that you have the private key corresponding to the
+    #  public key of the GitHub user that initiated the job.
+    #
+    - name: "Debug: Start tmate"
+      uses: mxschmitt/action-tmate@v3
+      with:
+        limit-access-to-actor: true
+      if: ${{ github.ref == 'refs/heads/ci-debug' && failure() }}

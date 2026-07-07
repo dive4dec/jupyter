@@ -16,7 +16,7 @@ cs2310nb := cs2310nb^0.1.2g
 cs2310nb_min := $(cs2310nb)^^min
 
 cs2310nb_collab := $(cs2310nb)^collab
-jhub := jhub^4.0.0h
+jhub := jhub^4.0.0l
 deephub := deephub^4.0.0h
 deepnb := deepnb^0.1.6
 # cs5483nb := cs5483nb^0.2.2j
