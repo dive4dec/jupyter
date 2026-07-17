@@ -9,7 +9,7 @@
 # Current information for different docker images
 # ===============================================
 # cs1302nb := cs1302nb^0.2.0e
-cs1302nb := cs1302nb^0.3.2t
+cs1302nb := cs1302nb^0.4.0
 cs1302nb_collab := $(cs1302nb)^collab
 cs1302nb_core := $(cs1302nb)^^core
 cs2310nb := cs2310nb^0.1.2g
@@ -184,7 +184,7 @@ cd $(IMAGE_NAME) && docker buildx build . \
 -t "$(IMAGE_NAME):$(IMAGE_TAG)" \
 $(if $(DOCKERFILE_SUFFIX),-f Dockerfile.$(DOCKERFILE_SUFFIX)) \
 $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
-$(if $(filter cs1302nb,$(IMAGE_NAME)),--build-context jupyter-ai-hermes=../../jupyter-ai-hermes --build-context jupyter-hermes-proxy=../../jupyter-hermes-proxy)
+$(if $(filter cs1302nb,$(IMAGE_NAME)),--build-context jupyter-ai-hermes=../../jupyter-ai-hermes --build-context jupyter-hermes-proxy=../../jupyter-hermes-proxy --build-context cppmanlite=../../cppmanlite)
 endef
 
 # Pull a docker image

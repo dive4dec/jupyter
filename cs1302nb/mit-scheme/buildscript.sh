@@ -54,7 +54,10 @@ tar xzf mit-scheme-${SCHEME_VERSION}.tar.gz
 rm mit-scheme-${SCHEME_VERSION}.tar.gz
 pushd mit-scheme-${SCHEME_VERSION}/src
 ./configure
-make
+# GCC 15 + glibc 2.41 (Ubuntu 26.04): MIT Scheme 12.1 redefines _POSIX_C_SOURCE
+# which conflicts with glibc's new 202405L value. The Makefile uses -Werror,
+# so the redefinition warning becomes a fatal error. Disable -Werror to fix.
+make CFLAGS="-Wno-error"
 make install
 popd
 popd

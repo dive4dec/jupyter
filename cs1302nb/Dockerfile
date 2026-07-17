@@ -1,4 +1,4 @@
-ARG ROOT_CONTAINER=ubuntu:24.04
+ARG ROOT_CONTAINER=ubuntu:26.04
 
 FROM $ROOT_CONTAINER AS foundation
 
@@ -19,7 +19,8 @@ ENV CONDA_DIR=${CONDA_DIR} \
     LANGUAGE=C.UTF-8 \
     TZ=Asia/Hong_Kong \
     HOME="/home/${NB_USER}" \
-    PATH="${CONDA_DIR}/bin:${PATH}"
+    PATH="${CONDA_DIR}/bin:${PATH}" \
+    UV_LINK_MODE=copy
 
 # Fix: https://github.com/hadolint/hadolint/wiki/DL4006
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -66,14 +67,7 @@ RUN apt-get update --yes && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install VS Code
-RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg && \
-    install -o root -g root -m 644 microsoft.gpg /etc/apt/trusted.gpg.d/ && \
-    sh -c 'echo "deb [arch=$(dpkg --print-architecture)] https://packages.microsoft.com/repos/vscode stable main" > /etc/apt/sources.list.d/vscode.list' && \
-    apt-get install -y --no-install-recommends apt-transport-https && \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends code && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* microsoft.gpg
+
 # Install Clang 22 via apt (avoids conflicts with ROOT's LLVM when installed via mamba)
 RUN wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh && \
     chmod +x /tmp/llvm.sh && \
@@ -86,29 +80,71 @@ RUN wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh && \
     done && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# fix-permissions script (needed by Emscripten, CosmoCC, and later stages)
+COPY fix-permissions /usr/local/bin/fix-permissions
+RUN chmod a+rx /usr/local/bin/fix-permissions
 
-# Install Firefox Nightly
-RUN add-apt-repository ppa:ubuntu-mozilla-daily/ppa && \
+# Emscripten for MLC Wasm
+RUN curl -fsSL -o /tmp/emsdk.tar.gz https://github.com/emscripten-core/emsdk/archive/refs/tags/6.0.0.tar.gz && \
+    tar -xzf /tmp/emsdk.tar.gz -C /opt && \
+    mv /opt/emsdk-6.0.0 /opt/emsdk && \
+    rm /tmp/emsdk.tar.gz && \
+    chmod +x /opt/emsdk/emsdk && \
+    /opt/emsdk/emsdk install latest && \
+    /opt/emsdk/emsdk activate latest && \
+    fix-permissions /opt/emsdk
+
+# Cosmopolitan LibC (cosmocc)
+RUN mkdir -p /opt/cosmocc && \
+    wget https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip && \
+    unzip cosmocc-4.0.2.zip -d /opt/cosmocc && \
+    rm cosmocc-4.0.2.zip && \
+    fix-permissions /opt/cosmocc
+
+# Install VS Code
+RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg && \
+    install -o root -g root -m 644 microsoft.gpg /etc/apt/trusted.gpg.d/ && \
+    sh -c 'echo "deb [arch=$(dpkg --print-architecture)] https://packages.microsoft.com/repos/vscode stable main" > /etc/apt/sources.list.d/vscode.list' && \
+    apt-get install -y --no-install-recommends apt-transport-https && \
     apt-get update --yes && \
-    apt-get install --yes --no-install-recommends firefox-trunk && \
+    apt-get install --yes --no-install-recommends code && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* microsoft.gpg
+
+# code-server
+RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
+    sh /tmp/install.sh --version 4.128.0 && \
+    fix-permissions "${HOME}" && \
+    fix-permissions /usr/lib/code-server/ && \
+    rm -rf ~/.cache/code-server/ && \
+    rm -rf /tmp/install.sh
+
+# Install Google Chrome (Chromium-family browser for Hermes CDP + student use)
+# Ubuntu's chromium-browser is a snap stub unusable in Docker, so use Google's apt repo
+RUN wget -q https://dl.google.com/linux/linux_signing_key.pub -O /tmp/chrome-key.pub && \
+    mkdir -p /etc/apt/keyrings && \
+    cat /tmp/chrome-key.pub | gpg --dearmor > /etc/apt/keyrings/google-chrome.gpg && \
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends google-chrome-stable && \
+    rm /tmp/chrome-key.pub && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Modify desktop files to include --no-sandbox
+# Modify desktop files to include --no-sandbox (container environment)
+# Google Chrome's desktop file uses Exec=/usr/bin/google-chrome-stable %U
 RUN sed -i 's|Exec=/usr/share/code/code|Exec=/usr/share/code/code --no-sandbox|' /usr/share/applications/code.desktop && \
-    sed -i 's|Exec=firefox-trunk|Exec=firefox-trunk --no-sandbox|' /usr/share/applications/firefox-trunk.desktop && \
+    sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --no-sandbox|g' /usr/share/applications/google-chrome.desktop && \
+    sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --no-sandbox|g' /usr/share/applications/com.google.Chrome.desktop && \
     cat <<EOF >> /etc/bash.bashrc
 alias code='code --no-sandbox'
-alias firefox-trunk='firefox-trunk --no-sandbox'
-alias firefox='firefox-trunk --no-sandbox'
+alias google-chrome='google-chrome-stable --no-sandbox'
+alias chrome='google-chrome-stable --no-sandbox'
 EOF
 
-# Create a wrapper script for Firefox nightly with --no-sandbox
-RUN echo -e '#!/bin/bash\nexec /usr/bin/firefox-trunk --no-sandbox "$@"' > /usr/local/bin/firefox-trunk-no-sandbox && \
-    chmod +x /usr/local/bin/firefox-trunk-no-sandbox && \
-    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/firefox-trunk-no-sandbox 200 && \
-    update-alternatives --set x-www-browser /usr/local/bin/firefox-trunk-no-sandbox && \
-    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/local/bin/firefox-trunk-no-sandbox 200 && \
-    update-alternatives --set gnome-www-browser /usr/local/bin/firefox-trunk-no-sandbox
+# Set Chrome as default browser via alternatives
+RUN update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/google-chrome-stable 200 && \
+    update-alternatives --set x-www-browser /usr/bin/google-chrome-stable && \
+    update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/bin/google-chrome-stable 200 && \
+    update-alternatives --set gnome-www-browser /usr/bin/google-chrome-stable
 
 # Install TurboVNC based on the current architecture
 RUN ARCH=$(dpkg --print-architecture) && \
@@ -123,10 +159,6 @@ RUN ARCH=$(dpkg --print-architecture) && \
 COPY mit-scheme/ /tmp/mit-scheme/
 RUN bash /tmp/mit-scheme/buildscript.sh
 
-# fix-permissions script
-COPY fix-permissions /usr/local/bin/fix-permissions
-RUN chmod a+rx /usr/local/bin/fix-permissions
-
 # PAM / sudoers / group permissions
 RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
     sed -i.bak -e 's/^%admin/#%admin/' /etc/sudoers && \
@@ -140,10 +172,10 @@ RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
 USER ${NB_UID}
 
 # Pin python version here, or leave it empty for the latest version
-ARG PYTHON_VERSION=3.12
+ARG PYTHON_VERSION=3.14
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.7.0-0
+ARG MICROMAMBA_VERSION=2.8.1-0
 
 # Download and install Micromamba
 COPY --chown="${NB_UID}:${NB_GID}" initial-condarc "${CONDA_DIR}/.condarc"
@@ -187,17 +219,26 @@ alias mamba="micromamba"
 mamba activate
 EOF
 
-# Install CUDA Toolkit
+# Install uv for fast pip installs (10-100x faster than pip).
+# uv detects the conda env via CONDA_PREFIX and installs into it with --system.
+# At runtime, pip is replaced with a uv wrapper (see prod stage) so that
+# both interactive `pip install foo` and programmatic calls go through uv.
+# `python -m pip` retains the original pip as an escape hatch.
+# uv is installed via mamba (conda-forge) into /opt/conda/bin — never /home/jovyan.
+
+# Install CUDA Toolkit 13.3 (ubuntu2604 repo).
+# Note: cu133 PyTorch/MLC wheels do not exist yet, so we use cu130 wheels
+# (which bundle their own CUDA 13.0 runtime, compatible with the 13.3 toolkit).
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then \
-        wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-ubuntu2404.pin && \
-        mv cuda-ubuntu2404.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
-        wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub && \
-        gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg 3bf863cc.pub && \
-        echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" > /etc/apt/sources.list.d/cuda.list && \
+        wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2604/x86_64/cuda-ubuntu2604.pin && \
+        mv cuda-ubuntu2604.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
+        wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2604/x86_64/60DF8A40.pub && \
+        gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg 60DF8A40.pub && \
+        echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2604/x86_64/ /" > /etc/apt/sources.list.d/cuda.list && \
         apt-get update && \
-        apt-get install --yes --no-install-recommends cuda-toolkit-12-8 && \
-        rm -rf /var/lib/apt/lists/* 3bf863cc.pub; \
+        apt-get install --yes --no-install-recommends cuda-toolkit-13-3 && \
+        rm -rf /var/lib/apt/lists/* 60DF8A40.pub; \
     else \
         echo "Skipping CUDA installation: unsupported architecture ($ARCH)"; \
     fi
@@ -205,11 +246,12 @@ RUN ARCH=$(dpkg --print-architecture) && \
 USER ${NB_UID}
 
 # ============================================================
-# Python + PyTorch + Jupyter + Clang — merged into one big install
+# Python + PyTorch + Jupyter merged into one big install
 # ============================================================
 RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTHON_SPECIFIER="python=${PYTHON_VERSION}"; fi && \
     mamba install --yes \
     "${PYTHON_SPECIFIER}" \
+    'uv' \
     && \
     mkdir -p "${CONDA_DIR}/conda-meta" && \
     mamba list python | sed 's/^[[:space:]]*//' | grep '^python ' | tr -s ' ' | cut -d ' ' -f 1,2 >> "${CONDA_DIR}/conda-meta/pinned" && \
@@ -217,11 +259,11 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
     fix-permissions "${CONDA_DIR}" && \
     fix-permissions "/home/${NB_USER}" && \
     \
-    # -- PyTorch (cu128) --
+    # -- PyTorch (cu130 — cu133 wheels don't exist yet) --
     ARCH=$(dpkg --print-architecture) && \
     PIP_INDEX="" && \
-    [ "$ARCH" = "amd64" ] && PIP_INDEX="--index-url https://download.pytorch.org/whl/cu128"; \
-    pip install --quiet --no-cache-dir \
+    [ "$ARCH" = "amd64" ] && PIP_INDEX="--index-url https://download.pytorch.org/whl/cu130"; \
+    uv pip install --system --no-cache \
         'torch==2.11.*' \
         'torchvision==0.26.*' \
         'torchaudio==2.11.*' \
@@ -232,43 +274,40 @@ RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTH
     'nodejs==24.*' \
     'notebook==7.6.*' \
     'jupyterlab==4.6.*' \
-    'jupyterhub==5.4.*' \
+    'jupyterhub==5.5.*' \
+    'ipykernel=7.2.*' \
     && \
     mamba clean --all -f -y && \
     npm cache clean --force && \
     jupyter lab clean && \
+    npm install -g agent-browser && \
     fix-permissions "${CONDA_DIR}" && \
     fix-permissions "/home/${NB_USER}"
 
 ENV JUPYTER_PORT=8888
 EXPOSE $JUPYTER_PORT
 
-USER root
-
-### code-server ###
-RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.127.0 && \
-    fix-permissions "${HOME}" && \
-    fix-permissions /usr/lib/code-server/ && \
-    rm -rf ~/.cache/code-server/ && \
-    rm -rf /tmp/install.sh
-
 USER ${NB_UID}
-
+    
 # ============================================================
 # Programming language kernels + Course packages + UI extensions
 # ============================================================
 RUN \
     mamba install --quiet --yes \
-    'openjdk=23.*' \
+    'openjdk=25.*' \
     'ant=1.10.*' \
     'jupyterlab-myst=2.7.*' \
     'jupyterlite=0.7.*' \
     'jupyterlite-sphinx=0.22.*' \
     && \
-    pip install --quiet --no-cache-dir \
-    'calysto-scheme==1.4.*' \
-    && \
+    # yasi (calysto-scheme dep) uses node.s on ast.Constant removed in Python 3.14
+    # Patch only .s] and .s) and .s, patterns (AST attribute access), not .sort/.split etc.
+    curl -sL "https://files.pythonhosted.org/packages/3a/58/e369cc04c658f6fbf53de6f05163fc6adbb16694ff7ae56886875fe30c07/yasi-2.1.2.tar.gz" -o /tmp/yasi.tar.gz && \
+    mkdir -p /tmp/yasi-src && tar xzf /tmp/yasi.tar.gz -C /tmp/yasi-src && \
+    find /tmp/yasi-src -name '*.py' -exec sed -i "s/\.s\]/\.value\]/g; s/\.s)/\.value)/g; s/\.s,/\.value,/g; s/\.s$/\.value/g" {} + && \
+    uv pip install --system --no-cache /tmp/yasi-src/yasi-2.1.2 && \
+    rm -rf /tmp/yasi.tar.gz /tmp/yasi-src && \
+    uv pip install --system --no-cache 'calysto-scheme==1.4.*' && \
     python -m calysto_scheme install --sys-prefix && \
     \
     # Java kernel (IJupyter)
@@ -291,6 +330,22 @@ RUN \
     npm cache clean --force && \
     fix-permissions "${CONDA_DIR}"
 
+# Rust kernel (evcxr_jupyter)
+# Ubuntu 26.04 ships rustc 1.93 + cargo via apt — no rustup needed.
+# evcxr_jupyter v0.21.1 compiles from source via cargo (~3-5 min).
+USER root
+RUN apt-get update --yes && \
+    apt-get install --yes --no-install-recommends rustc cargo && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    cargo install evcxr_jupyter --root /usr/local && \
+    evcxr_jupyter --install && \
+    mkdir -p "${CONDA_DIR}/share/jupyter/kernels" && \
+    mv "/home/${NB_USER}/.local/share/jupyter/kernels/rust" \
+       "${CONDA_DIR}/share/jupyter/kernels/rust" && \
+    rm -rf /root/.cargo /home/${NB_USER}/.cargo && \
+    fix-permissions "${CONDA_DIR}"
+USER ${NB_UID}
+
 # ============================================================
 # JupyterLab extensions + LSP + Formatters
 # ============================================================
@@ -305,7 +360,7 @@ RUN mamba install --quiet --yes \
     'nbgitpuller==1.3.*' \
     'jupyterlab-git==0.52.*' \
     && \
-    pip install --quiet --no-cache-dir \
+    uv pip install --system --no-cache \
     'python-lsp-server[all]==1.14.*' \
     'astyle==3.6.*' \
     'jupyter-www-proxy' \
@@ -331,14 +386,9 @@ RUN npm install -g mystmd@1.10.1 && \
     npm cache clean --force
 
 # Remote desktop proxy
-RUN pip install --quiet --no-cache-dir \
+RUN uv pip install --system --no-cache \
     'jupyter-remote-desktop-proxy==3.0.*' \
     && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}"
-
-# IPython kernel for virtualenvs
-RUN mamba install --quiet --yes 'ipykernel=7.2.*' && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
@@ -350,48 +400,28 @@ RUN mamba install --quiet --yes \
     'nvitop=1.7.*' \
     'gpustat=1.1.*' \
     'pyarrow=24.0.*' \
-    'pypdf2=3.0.*' \
+    'pypdf=5.*' \
     && \
-    pip install --quiet --no-cache-dir \
+    uv pip install --system --no-cache \
     --no-build-isolation \
     'langchain==1.3.*' \
     'langchain-openai==1.2.*' \
     'sentence-transformers==5.5.*' \
-    'transformers==5.10.*' \
+    'transformers==5.9.*' \
     'accelerate==1.13.*' \
     'bitsandbytes==0.49.*' \
     'tiktoken==0.13.*' \
     'datasets==4.8.*' \
     'optimum==2.1.*' \
     && \
-    pip install --quiet --no-cache-dir \
+    uv pip install --system --no-cache \
     'gptqmodel==7.0.*' \
     && \
-    pip install --no-build-isolation --pre -U -f https://mlc.ai/wheels mlc-llm-nightly-cu128 mlc-ai-nightly-cu128 \
+    uv pip install --system --no-build-isolation --pre -U \
+        -f https://mlc.ai/wheels mlc-llm-nightly-cu130 mlc-ai-nightly-cu130 \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
-
-USER root
-
-# Emscripten for MLC Wasm
-RUN curl -fsSL -o /tmp/emsdk.tar.gz https://github.com/emscripten-core/emsdk/archive/refs/tags/6.0.0.tar.gz && \
-    tar -xzf /tmp/emsdk.tar.gz -C /opt && \
-    mv /opt/emsdk-6.0.0 /opt/emsdk && \
-    rm /tmp/emsdk.tar.gz && \
-    chmod +x /opt/emsdk/emsdk && \
-    /opt/emsdk/emsdk install latest && \
-    /opt/emsdk/emsdk activate latest && \
-    fix-permissions /opt/emsdk
-
-# Cosmopolitan LibC (cosmocc)
-RUN mkdir -p /opt/cosmocc && \
-    wget https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip && \
-    unzip cosmocc-4.0.2.zip -d /opt/cosmocc && \
-    rm cosmocc-4.0.2.zip && \
-    fix-permissions /opt/cosmocc
-
-USER ${NB_UID}
 
 # ============================================================
 # Data science + visualization + UI extensions — merged
@@ -400,23 +430,74 @@ RUN mamba install --quiet --yes \
     altair bokeh bottleneck blas cython h5py numba patsy \
     pytables seaborn scikit-learn sqlalchemy statsmodels xlrd \
     && \
-    pip install --quiet --no-cache-dir tables \
+    uv pip install --system --no-cache tables \
     && \
     mamba install --quiet --yes \
     'jupyter-archive=3.4.*' \
     && \
-    pip install --quiet --no-cache-dir \
+    uv pip install --system --no-cache \
     'jupyterlab_theme_solarized_dark' \
     'theme-darcula' \
-    'sliveshow' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
-# Copy local files (scripts + configs)
-COPY start.sh /usr/local/bin/
-COPY start-notebook.sh start-singleuser.sh install-vscode-extension /usr/local/bin/
-COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
+
+# Ollama
+USER root
+RUN curl -fsSL https://ollama.com/install.sh | sh
+
+# ============================================================
+# Hermes Agent (system-wide) + jupyter-ai-hermes + jupyter-hermes-proxy
+# ============================================================
+# Strategy:
+#   1. Clone hermes-agent source once, build web_dist, pip install into conda
+#   2. COPY submodule sources and pip install from local paths
+# This avoids curl|install.sh (which creates isolated venvs), symlinks,
+# and duplicate git clones.  The `hermes` command lands at /opt/conda/bin/
+# where both JupyterLab and code-server can find it.
+
+# Clone hermes-agent, build dashboard web_dist, and pip install into conda
+RUN git clone --depth 1 --branch v2026.7.7.2 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
+    # v2026.7.7.2 requires setuptools>=77 for SPDX license expression
+    uv pip install --system --no-cache 'setuptools>=77' && \
+    # Patch: fix two ACP cancel (stop button) bugs in Hermes v2026.7.7.2
+    # Bug 1: None.startswith() crash — when interrupted mid-tool-loop,
+    #   run_conversation returns final_response=None; .get("final_response", "")
+    #   returns None (key exists), then None.startswith() raises AttributeError
+    #   → "Internal error" → stop button shows error.
+    # Bug 2: Junk output after cancel — when interrupted during API streaming,
+    #   partial LLM text is sent to client as a complete message; only the
+    #   "Operation interrupted:" prefix was suppressed, not partial responses.
+    sed -i 's/final_response = result.get("final_response", "")/final_response = result.get("final_response") or ""/' \
+        /tmp/hermes-agent/acp_adapter/server.py && \
+    sed -i '/suppress_interrupt_response = interrupted and final_response.startswith(/,/)/{s/suppress_interrupt_response = interrupted and final_response.startswith(/suppress_interrupt_response = interrupted  # cancelled or interrupted/;s/            INTERRUPT_WAITING_FOR_MODEL_PREFIX//;s/        )//;}' \
+        /tmp/hermes-agent/acp_adapter/server.py && \
+    sed -i '/from agent.conversation_loop import INTERRUPT_WAITING_FOR_MODEL_PREFIX/d' \
+        /tmp/hermes-agent/acp_adapter/server.py && \
+    # Build the dashboard web UI (required for jupyter-hermes-proxy)
+    cd /tmp/hermes-agent/web && \
+    npm install && \
+    npm run build && \
+    cd / && \
+    # Install hermes-agent into the conda environment
+    uv pip install --system --no-cache /tmp/hermes-agent && \
+    # Install Matrix adapter dependencies (mautrix[encryption], etc.)
+    # libolm-dev provides system olm library; CMAKE_POLICY_VERSION_MINIMUM
+    # needed because python-olm's CMakeLists requires CMake < 3.5 (removed in 26.04)
+    apt-get update --yes && \
+    apt-get install --yes --no-install-recommends libolm-dev && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    CMAKE_POLICY_VERSION_MINIMUM=3.5 uv pip install --system --no-cache \
+        'mautrix[encryption]==0.21.*' \
+        'aiosqlite==0.22.*' \
+        'asyncpg==0.31.*' \
+        'aiohttp-socks==0.11.*' \
+        && \
+    rm -rf /tmp/hermes-agent && \
+    fix-permissions "${CONDA_DIR}"
+
+USER ${NB_UID}
 
 # Code-server extensions (built-in --install-extension)
 RUN for ext in \
@@ -439,45 +520,66 @@ RUN for ext in \
         code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
     done
 
+# install-vscode-extension script (needed for versioned VSIX downloads from Marketplace)
+COPY install-vscode-extension /usr/local/bin/install-vscode-extension
+RUN chmod a+rx /usr/local/bin/install-vscode-extension
+
 # Code-server extensions (via install-vscode-extension for versioned downloads)
 RUN for ext in \
-    Continue.continue@1.2.22 \
+    Continue.continue@2.0.0 \
+    formulahendry.acp-client@0.2.0 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
-    done
-
-# ACP Client extension for Hermes Agent
-RUN install-vscode-extension "formulahendry.acp-client@0.2.0" --extensions-dir /usr/lib/code-server/lib/vscode/extensions && \
+    done && \
     sed -i 's/bn=ln(dn,\["navigator"\])/bn=function(){return navigator}/' \
         /usr/lib/code-server/lib/vscode/extensions/formulahendry.acp-client-*/dist/extension.js
 
-USER ${NB_UID}
-
-# Jupyter AI + nbgrader + course widgets
-RUN pip install --quiet --no-cache-dir \
+# Jupyter AI
+RUN uv pip install --system --no-cache \
     'jupyter-ai==3.0.*' \
     'jupyter-ai-jupyternaut' \
     'jupyter-ai-magic-commands' \
-    'divewidgets' \
-    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@8e0b69a6da48856e6f180d27041b6e1c96602934' \
-    'jdc' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
-# Ollama
-USER root
-RUN curl -fsSL https://ollama.com/install.sh | sh
+# Pin jupyter_server_documents to 0.3.0 (jupyter-ai has no version constraint and
+# uv resolves to 0.2.5 by default). 0.3.0 hardcodes serverSideExecution="true",
+# which routes cell execution through a server-side handler with allow_stdin=False,
+# breaking input(). Patch to "false" to use the standard kernel WebSocket instead.
+RUN uv pip install --system --no-cache 'jupyter-server-documents==0.3.0' && \
+    sed -i 's/page_config\["serverSideExecution"\] = "true"/page_config\["serverSideExecution"\] = "false"/' "$(python3 -c 'import jupyter_server_documents.app as a; print(a.__file__)')" && \
+    fix-permissions "${CONDA_DIR}"
 
+# Install jupyter-ai-hermes and jupyter-hermes-proxy from build contexts
+# The Makefile passes --build-context for each submodule, avoiding symlinks
+# and the "too many links" buildkit error.
+COPY --from=jupyter-ai-hermes --chown=${NB_USER}:${NB_GID} . /tmp/jupyter-ai-hermes
+COPY --from=jupyter-hermes-proxy --chown=${NB_USER}:${NB_GID} . /tmp/jupyter-hermes-proxy
+RUN uv pip install --system --no-cache \
+    /tmp/jupyter-ai-hermes \
+    /tmp/jupyter-hermes-proxy \
+    && \
+    rm -rf /tmp/jupyter-ai-hermes /tmp/jupyter-hermes-proxy && \
+    fix-permissions "${CONDA_DIR}"
 
-# Plotly + data viz + marimo + JupyterLab extensions
+# Install cppmanlite from build context (submodule, same pattern as jupyter-ai-hermes)
+COPY --from=cppmanlite --chown=${NB_USER}:${NB_GID} . /tmp/cppmanlite
+RUN uv pip install --system --no-cache /tmp/cppmanlite && \
+    rm -rf /tmp/cppmanlite && \
+    fix-permissions "${CONDA_DIR}"
+
+# Plotly + data viz + marimo + JupyterLab extensions + nbgrader + course widgets
 RUN mamba install --quiet --yes \
     'plotly=6.6.*' \
     'sqlglot=28.10.*' \
     'polars=1.41.*' \
     'duckdb=1.5.*' \
     && \
-    pip install --quiet --no-cache-dir \
+    uv pip install --system --no-cache \
+    'divewidgets' \
+    'nbgrader@git+https://github.com/dive4dec/nbgrader.git@8e0b69a6da48856e6f180d27041b6e1c96602934' \
+    'jdc' \
     'marimo[recommended]==0.23.*' \
     'git+https://github.com/dive4dec/jupyter-marimo-proxy@a493c16de8e47a29c8f82ff65b10ee9ae393606c' \
     'kaleido==0.2.*' \
@@ -485,14 +587,17 @@ RUN mamba install --quiet --yes \
     && \
     mamba install --quiet --yes \
     'xeus-cpp=0.10.*' \
-    'xtensor=0.27.*' \
+    'xtensor=0.9.*' \
     'root=6.40.*' \
     'gxx_linux-64' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
 
-
+# Copy local files (scripts + configs)
+COPY start.sh /usr/local/bin/
+COPY start-notebook.sh start-singleuser.sh /usr/local/bin/
+COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 
 FROM base AS prod
 
@@ -532,63 +637,47 @@ RUN jupyter labextension disable "@jupyterlab/apputils-extension:announcements"
 
 RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 
-# ============================================================
-# Hermes Agent (system-wide) + jupyter-ai-hermes + jupyter-hermes-proxy
-# ============================================================
-# Strategy:
-#   1. Clone hermes-agent source once, build web_dist, pip install into conda
-#   2. COPY submodule sources and pip install from local paths
-# This avoids curl|install.sh (which creates isolated venvs), symlinks,
-# and duplicate git clones.  The `hermes` command lands at /opt/conda/bin/
-# where both JupyterLab and code-server can find it.
-
-# Clone hermes-agent, build dashboard web_dist, and pip install into conda
-RUN git clone --depth 1 --branch v2026.7.1 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
-    # v2026.7.1 requires setuptools>=77 for SPDX license expression
-    pip install --quiet --no-cache-dir 'setuptools>=77,<83' && \
-    # Build the dashboard web UI (required for jupyter-hermes-proxy)
-    cd /tmp/hermes-agent/web && \
-    npm install && \
-    npm run build && \
-    cd / && \
-    # Install hermes-agent into the conda environment
-    pip install --quiet --no-cache-dir /tmp/hermes-agent && \
-    # Install Matrix adapter dependencies (mautrix[encryption], etc.)
-    pip install --quiet --no-cache-dir \
-        'mautrix[encryption]==0.21.*' \
-        'aiosqlite==0.22.*' \
-        'asyncpg==0.31.*' \
-        'aiohttp-socks==0.11.*' \
-        && \
-    rm -rf /tmp/hermes-agent && \
-    fix-permissions "${CONDA_DIR}"
-
-# Install jupyter-ai-hermes and jupyter-hermes-proxy from build contexts
-# The Makefile passes --build-context for each submodule, avoiding symlinks
-# and the "too many links" buildkit error.
-COPY --from=jupyter-ai-hermes --chown=${NB_USER}:${NB_GID} . /tmp/jupyter-ai-hermes
-COPY --from=jupyter-hermes-proxy --chown=${NB_USER}:${NB_GID} . /tmp/jupyter-hermes-proxy
-RUN pip install --quiet --no-cache-dir \
-    /tmp/jupyter-ai-hermes \
-    /tmp/jupyter-hermes-proxy \
-    && \
-    rm -rf /tmp/jupyter-ai-hermes /tmp/jupyter-hermes-proxy && \
-    fix-permissions "${CONDA_DIR}"
-
 # Add Emscripten, CUDA, CosmoCC to PATH
 ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:/usr/local/cuda/bin:${PATH}:/opt/cosmocc/bin"
 RUN chmod a+w /opt/emsdk/upstream/emscripten/cache
 
 
-# Pin jupyter_server_documents to 0.3.0b0 — removes the custom notebook content
-# factory that was overriding jupyterlab-myst's MySTContentFactory, breaking
-# cross-cell references, math macros, and exercise counters.
-# Patch serverSideExecution to "false" — 0.3.0b0 hardcodes it to "true", which
-# routes cell execution through a server-side handler with allow_stdin=False,
-# breaking input(). The standard kernel WebSocket (with stdin support) is used instead.
-RUN pip install --quiet --no-cache-dir 'jupyter_server_documents==0.3.0b0' && \
-    sed -i 's/page_config\["serverSideExecution"\] = "true"/page_config\["serverSideExecution"\] = "false"/' "$(python3 -c 'import jupyter_server_documents.app as a; print(a.__file__)')" && \
-    fix-permissions "${CONDA_DIR}"
+# ============================================================
+# Runtime pip → uv: replace pip with a uv wrapper so that both
+# interactive `pip install foo` and programmatic calls go through uv.
+# `python -m pip` retains the original pip as an escape hatch.
+# conda/mamba install are completely unaffected.
+# ============================================================
+RUN mv /opt/conda/bin/pip /opt/conda/bin/pip.real && \
+    printf '#!/bin/bash\nexec uv pip "${1:-install}" --system "${@:2}"\n' > /opt/conda/bin/pip && \
+    chmod +x /opt/conda/bin/pip && \
+    mv /opt/conda/bin/pip3 /opt/conda/bin/pip3.real 2>/dev/null || true && \
+    ln -sf /opt/conda/bin/pip /opt/conda/bin/pip3
+
+# Add pip→uv wrapper for interactive shells.
+# In base env: use uv (faster; base pip is already replaced with a uv wrapper).
+# In a user conda env: defer to that env's real pip so uv is not forced.
+# UV_LINK_MODE=copy in ENV: suppress hardlink warnings (cache on NFS, target may be overlay or NFS).
+USER root
+RUN cat <<'EOF' >> /etc/bash.bashrc
+pip() {
+    if [[ "$CONDA_DEFAULT_ENV" == "base" || -z "$CONDA_DEFAULT_ENV" ]]; then
+        local cmd="$1"; shift
+        command uv pip "$cmd" --system --python "$(command -v python)" "$@"
+    else
+        command pip "$@"
+    fi
+}
+pip3() {
+    if [[ "$CONDA_DEFAULT_ENV" == "base" || -z "$CONDA_DEFAULT_ENV" ]]; then
+        local cmd="$1"; shift
+        command uv pip "$cmd" --system --python "$(command -v python)" "$@"
+    else
+        command pip3 "$@"
+    fi
+}
+EOF
+USER ${NB_UID}
 
 WORKDIR "${HOME}"
 
@@ -596,3 +685,15 @@ WORKDIR "${HOME}"
 FROM prod AS default
 
 USER ${NB_USER}
+
+
+FROM prod AS collab
+
+USER ${NB_UID}
+
+# Real-time collaboration for JupyterLab
+RUN mamba install --quiet --yes \
+    'jupyter-collaboration=4.3.*' \
+    && \
+    mamba clean --all -f -y && \
+    fix-permissions "${CONDA_DIR}"
