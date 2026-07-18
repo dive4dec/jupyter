@@ -569,6 +569,12 @@ RUN uv pip install --system --no-cache /tmp/cppmanlite && \
     rm -rf /tmp/cppmanlite && \
     fix-permissions "${CONDA_DIR}"
 
+# Install jupyterlab-pwa from build context (PWA support: manifest, service worker, installability)
+COPY --from=jupyterlab-pwa --chown=${NB_USER}:${NB_GID} . /tmp/jupyterlab-pwa
+RUN uv pip install --system --no-cache /tmp/jupyterlab-pwa && \
+    rm -rf /tmp/jupyterlab-pwa && \
+    fix-permissions "${CONDA_DIR}"
+
 # Plotly + data viz + marimo + JupyterLab extensions + nbgrader + course widgets
 RUN mamba install --quiet --yes \
     'plotly=6.6.*' \
