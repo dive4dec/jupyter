@@ -9,7 +9,7 @@
 # Current information for different docker images
 # ===============================================
 # cs1302nb := cs1302nb^0.2.0e
-cs1302nb := cs1302nb^0.4.3
+cs1302nb := cs1302nb^0.4.5
 cs1302nb_collab := $(cs1302nb)^collab
 cs1302nb_core := $(cs1302nb)^^core
 cs2310nb := cs2310nb^0.1.2g

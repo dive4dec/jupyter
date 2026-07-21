@@ -140,6 +140,18 @@ alias google-chrome='google-chrome-stable --no-sandbox'
 alias chrome='google-chrome-stable --no-sandbox'
 EOF
 
+# Replace bwrap with a passthrough wrapper for containers without CAP_SYS_ADMIN.
+# Ubuntu 26.04 glycin (GTK image loader) uses bwrap to sandbox image decoders.
+# bwrap needs mount namespaces (CAP_SYS_ADMIN), unavailable in K8s pods.
+# Without this, XFCE panel crashes on icon load: "bwrap: Failed to make / slave".
+# The wrapper strips sandbox flags and execs the target binary directly,
+# which is safe because the container itself provides isolation.
+COPY bwrap-wrapper.sh /tmp/bwrap-wrapper.sh
+RUN mv /usr/bin/bwrap /usr/bin/bwrap.real && \
+    cp /tmp/bwrap-wrapper.sh /usr/bin/bwrap && \
+    chmod 755 /usr/bin/bwrap && \
+    rm /tmp/bwrap-wrapper.sh
+
 # Set Chrome as default browser via alternatives
 RUN update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/google-chrome-stable 200 && \
     update-alternatives --set x-www-browser /usr/bin/google-chrome-stable && \
