@@ -428,6 +428,9 @@ RUN mamba install --quiet --yes \
     && \
     uv pip install --system --no-cache \
     'gptqmodel==7.0.*' \
+    'scikit_build_core' \
+    'setuptools_scm' \
+    'cython' \
     && \
     uv pip install --system --no-build-isolation --pre -U \
         -f https://mlc.ai/wheels mlc-llm-nightly-cu130 mlc-ai-nightly-cu130 \
