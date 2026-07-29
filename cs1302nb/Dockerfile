@@ -590,6 +590,24 @@ RUN uv pip install --system --no-cache /tmp/jupyterlab-pwa && \
     rm -rf /tmp/jupyterlab-pwa && \
     fix-permissions "${CONDA_DIR}"
 
+# Install jupyter-ai-hermes-magics from build context (%%hermes cell magic)
+COPY --from=jupyter-ai-hermes-magics --chown=${NB_USER}:${NB_GID} . /tmp/jupyter-ai-hermes-magics
+RUN uv pip install --system --no-cache /tmp/jupyter-ai-hermes-magics && \
+    rm -rf /tmp/jupyter-ai-hermes-magics && \
+    fix-permissions "${CONDA_DIR}"
+
+# Install jupyter-python-tutor from build context (%%pytutor cell magic)
+COPY --from=jupyter-python-tutor --chown=${NB_USER}:${NB_GID} . /tmp/jupyter-python-tutor
+RUN uv pip install --system --no-cache /tmp/jupyter-python-tutor && \
+    rm -rf /tmp/jupyter-python-tutor && \
+    fix-permissions "${CONDA_DIR}"
+
+# Install jupyter-cpp-tutor from build context (%%cpptutor cell magic)
+COPY --from=jupyter-cpp-tutor --chown=${NB_USER}:${NB_GID} . /tmp/jupyter-cpp-tutor
+RUN uv pip install --system --no-cache /tmp/jupyter-cpp-tutor && \
+    rm -rf /tmp/jupyter-cpp-tutor && \
+    fix-permissions "${CONDA_DIR}"
+
 # Plotly + data viz + marimo + JupyterLab extensions + nbgrader + course widgets
 RUN mamba install --quiet --yes \
     'plotly=6.6.*' \
@@ -619,6 +637,7 @@ RUN mamba install --quiet --yes \
 COPY start.sh /usr/local/bin/
 COPY start-notebook.sh start-singleuser.sh /usr/local/bin/
 COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
+COPY --chown="${NB_UID}:${NB_GID}" ipython_config.py "${CONDA_DIR}/etc/ipython/ipython_config.py"
 
 FROM base AS prod
 
