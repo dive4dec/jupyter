@@ -1,0 +1,27 @@
+#!/bin/bash
+
+set -e
+
+# Print usage information if no arguments were provided
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <publisher.extension-version> [<code-server-args>]"
+    echo "This script downloads and installs a VS Code extension."
+    echo "Arguments:"
+    echo "<publisher.extension@version>   Publisher, extension name, and version number separated by '.' and '@' respectively"
+    echo "<code-server-args>              Any additional arguments to be passed to the code-server command"
+    exit 1
+fi
+
+# Extract publisher, extension, and version from the id provided as publisher.extension@version
+publisher="${1%%.*}"
+version="${1##*@}"
+extension="${1#*.}"
+extension="${extension%@*}"
+
+fn="${publisher}.${extension}@${version}.vsix"
+url="https://${publisher}.gallery.vsassets.io/_apis/public/gallery/publisher/${publisher}/extension/${extension}/${version}/assetbyname/Microsoft.VisualStudio.Services.VSIXPackage"
+
+curl -L ${url} -o "/tmp/${fn}"
+shift
+
+code-server --install-extension "/tmp/${fn}" "$@"

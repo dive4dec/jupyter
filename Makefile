@@ -12,6 +12,8 @@
 cs1302nb := cs1302nb^0.4.23
 cs1302nb_collab := $(cs1302nb)^collab
 cs1302nb_core := $(cs1302nb)^^core
+divenb := divenb^0.1.0
+divenb_collab := $(divenb)^collab
 cs2310nb := cs2310nb^0.1.2g
 cs2310nb_min := $(cs2310nb)^^min
 
@@ -184,7 +186,7 @@ cd $(IMAGE_NAME) && docker buildx build . \
 -t "$(IMAGE_NAME):$(IMAGE_TAG)" \
 $(if $(DOCKERFILE_SUFFIX),-f Dockerfile.$(DOCKERFILE_SUFFIX)) \
 $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
-$(if $(filter cs1302nb,$(IMAGE_NAME)),--build-context jupyter-ai-hermes=../../jupyter-ai-hermes --build-context jupyter-hermes-proxy=../../jupyter-hermes-proxy --build-context jupyter-ai-hermes-magics=../../jupyter-ai-hermes-magics --build-context jupyter-python-tutor=../../jupyter-python-tutor --build-context jupyter-cpp-tutor=../../jupyter-cpp-tutor --build-context cppmanlite=../../cppmanlite --build-context jupyterlab-pwa=../../jupyterlab-pwa)
+$(if $(filter cs1302nb divenb,$(IMAGE_NAME)),--build-context jupyter-ai-hermes=../../jupyter-ai-hermes --build-context jupyter-hermes-proxy=../../jupyter-hermes-proxy --build-context jupyter-ai-hermes-magics=../../jupyter-ai-hermes-magics --build-context jupyter-python-tutor=../../jupyter-python-tutor --build-context jupyter-cpp-tutor=../../jupyter-cpp-tutor --build-context cppmanlite=../../cppmanlite --build-context jupyterlab-pwa=../../jupyterlab-pwa)
 endef
 
 # Pull a docker image
