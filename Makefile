@@ -95,6 +95,16 @@ public_registry ?= chungc
 # Default docker registry for managing docker images
 registry ?= 
 
+# Extra flags passed to `docker run` (mounts, env vars, ports, etc.)
+# Example: make docker-run.divenb^0.1.4 \
+#   docker_run_extra="--mount type=bind,source=/mnt/shared/student-vault,target=/data/student-vault,readonly"
+docker_run_extra ?=
+
+# Extra args passed to jupyter lab via NOTEBOOK_ARGS env var
+# (passed as env, not CMD, to avoid micromamba exec parsing issues)
+# Example: make docker-run.divenb^0.1.4 jupyter_args="--ServerApp.token=***"
+jupyter_args ?=
+
 # Commands
 # ========
 # Default shell for running commands
@@ -207,6 +217,8 @@ define docker-run
 	-p 8888:8888/tcp \
 	-p 8000:8000/tcp \
 	-v $(PWD):/home/jovyan/work \
+	$(docker_run_extra) \
+	$(if $(strip $(jupyter_args)),-e NOTEBOOK_ARGS="$(jupyter_args)") \
 	"$(FULL_IMAGE_NAME):$(IMAGE_TAG)"
 endef
 
