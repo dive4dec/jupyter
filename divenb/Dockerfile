@@ -779,6 +779,11 @@ pip3() {
 EOF
 USER ${NB_UID}
 
+# Install jupyter-storage-usage from pre-built wheel (server extension)
+COPY jupyter_storage_usage-0.1.0-py3-none-any.whl /tmp/
+RUN uv pip install --system --no-cache /tmp/jupyter_storage_usage-0.1.0-py3-none-any.whl && \
+    fix-permissions "${CONDA_DIR}"
+
 WORKDIR "${HOME}"
 
 

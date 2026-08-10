@@ -177,6 +177,12 @@ RUN pip install --no-cache-dir /tmp/jupyterhub_litellm-0.1.1-py3-none-any.whl &&
     fix-permissions "${CONDA_DIR}" && \
     fix-permissions "/home/${NB_USER}"
 
+# Install jupyterhub-storage-usage from pre-built wheel
+COPY jupyterhub_storage_usage-0.1.0-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir /tmp/jupyterhub_storage_usage-0.1.0-py3-none-any.whl && \
+    fix-permissions "${CONDA_DIR}" && \
+    fix-permissions "/home/${NB_USER}"
+
 COPY --chown="${NB_UID}:${NB_GID}" requirements.txt /tmp/requirements.txt
 
 RUN pip wheel \
@@ -241,6 +247,7 @@ USER ${NB_USER}
 WORKDIR /srv/jupyterhub
 
 EXPOSE 8081
+EXPOSE 9099
 ENTRYPOINT ["tini", "-g", "--"]
 CMD ["jupyterhub", "--config", "/usr/local/etc/jupyterhub/jupyterhub_config.py"]
 

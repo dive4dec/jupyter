@@ -12,15 +12,16 @@
 cs1302nb := cs1302nb^0.4.23
 cs1302nb_collab := $(cs1302nb)^collab
 cs1302nb_core := $(cs1302nb)^^core
-divenb := divenb^0.1.0
+divenb := divenb^0.2.29
 divenb_collab := $(divenb)^collab
 cs2310nb := cs2310nb^0.1.2g
 cs2310nb_min := $(cs2310nb)^^min
 
 cs2310nb_collab := $(cs2310nb)^collab
-jhub := jhub^4.0.0p
+jhub := jhub^4.0.0zw
 deephub := deephub^4.0.0h
 deepnb := deepnb^0.1.6
+cleanupnb := cleanupnb^0.1.15
 # cs5483nb := cs5483nb^0.2.2j
 cs5483nb := cs5483nb^0.3.0
 cs5483nb_collab := $(cs5483nb)^collab
