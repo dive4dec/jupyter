@@ -94,6 +94,7 @@ RUN mamba install --yes --quiet \
     'jupyter_server==2.20.*' \
     'notebook==7.6.*' \
     'jupyterhub==5.5.*' \
+    'aiohttp' \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
