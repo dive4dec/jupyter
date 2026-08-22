@@ -85,9 +85,9 @@ COPY fix-permissions /usr/local/bin/fix-permissions
 RUN chmod a+rx /usr/local/bin/fix-permissions
 
 # Emscripten for MLC Wasm
-RUN curl -fsSL -o /tmp/emsdk.tar.gz https://github.com/emscripten-core/emsdk/archive/refs/tags/6.0.5.tar.gz && \
+RUN curl -fsSL -o /tmp/emsdk.tar.gz https://github.com/emscripten-core/emsdk/archive/refs/tags/6.0.8.tar.gz && \
     tar -xzf /tmp/emsdk.tar.gz -C /opt && \
-    mv /opt/emsdk-6.0.5 /opt/emsdk && \
+    mv /opt/emsdk-6.0.8 /opt/emsdk && \
     rm /tmp/emsdk.tar.gz && \
     chmod +x /opt/emsdk/emsdk && \
     /opt/emsdk/emsdk install latest && \
@@ -112,7 +112,7 @@ RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor 
 
 # code-server
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.131.0 && \
+    sh /tmp/install.sh --version 4.133.0 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -169,8 +169,12 @@ RUN update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/
 # Obsidian is Electron-based (Chromium sandbox) — needs --no-sandbox in containers.
 # /usr/bin/obsidian → /etc/alternatives/obsidian → /opt/Obsidian/obsidian (symlink chain)
 # Replace the /usr/bin symlink with a wrapper that injects --no-sandbox.
+# NOTE: 1.13.8 was released without a Linux desktop build (APK only) — use 1.13.7,
+# the latest release that still ships obsidian_<ver>_amd64.deb.
+# NOTE: since 1.13.7 the .desktop file is md.obsidian.Obsidian.desktop (was
+# obsidian.desktop in <=1.13.4); glob over both so the Exec rewrite survives renames.
 RUN ARCH=$(dpkg --print-architecture) && \
-    wget -q "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.13.4/obsidian_1.13.4_amd64.deb" -O /tmp/obsidian.deb && \
+    wget -q "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.13.7/obsidian_1.13.7_amd64.deb" -O /tmp/obsidian.deb && \
     apt-get update --yes && \
     apt-get install --yes --no-install-recommends /tmp/obsidian.deb && \
     rm /tmp/obsidian.deb && \
@@ -179,12 +183,13 @@ RUN ARCH=$(dpkg --print-architecture) && \
     mv /usr/bin/obsidian /usr/bin/obsidian.real && \
     printf '#!/bin/bash\nexec /usr/bin/obsidian.real --no-sandbox "$@"\n' > /usr/bin/obsidian && \
     chmod 755 /usr/bin/obsidian && \
-    # Point .desktop at the wrapper (deb package points at /opt/Obsidian/obsidian directly)
-    sed -i 's|Exec=/opt/Obsidian/obsidian|Exec=/usr/bin/obsidian|' /usr/share/applications/obsidian.desktop
+    # Point .desktop at the wrapper (deb package points at /opt/Obsidian/obsidian directly).
+    # Filename is md.obsidian.Obsidian.desktop since 1.13.7 (obsidian.desktop before).
+    find /usr/share/applications -maxdepth 1 -name '*bsidian*.desktop' -exec sed -i 's|Exec=/opt/Obsidian/obsidian|Exec=/usr/bin/obsidian|' {} +
 
 # Install TurboVNC based on the current architecture
 RUN ARCH=$(dpkg --print-architecture) && \
-    wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.3/turbovnc_3.3_${ARCH}.deb" -O /tmp/turbovnc.deb && \
+    wget -q "https://github.com/TurboVNC/turbovnc/releases/download/3.3.1/turbovnc_3.3.1_${ARCH}.deb" -O /tmp/turbovnc.deb && \
     apt-get update --yes && \
     apt-get install --yes --no-install-recommends /tmp/turbovnc.deb && \
     rm /tmp/turbovnc.deb && \
@@ -214,7 +219,7 @@ USER ${NB_UID}
 ARG PYTHON_VERSION=3.14
 
 # Pin micromamba version here, or leave it empty for the latest version
-ARG MICROMAMBA_VERSION=2.8.1-1
+ARG MICROMAMBA_VERSION=2.9.0-0
 
 # Download and install Micromamba
 COPY --chown="${NB_UID}:${NB_GID}" initial-condarc "${CONDA_DIR}/.condarc"
@@ -376,11 +381,14 @@ RUN \
 # Rust kernel (evcxr_jupyter)
 # Ubuntu 26.04 ships rustc 1.93 + cargo via apt — no rustup needed.
 # evcxr_jupyter v0.21.1 compiles from source via cargo (~3-5 min).
+# PINNED: 0.22.0 depends on rust-analyzer crates (ra_ap_*) that require rustc 1.95,
+# which apt's rustc 1.93 lacks -> build failure. 0.21.1 is the last version that
+# compiles against apt's rustc. Keep the pin; don't let cargo re-resolve to latest.
 USER root
 RUN apt-get update --yes && \
     apt-get install --yes --no-install-recommends rustc cargo && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    cargo install evcxr_jupyter --root /usr/local && \
+    cargo install evcxr_jupyter --version 0.21.1 --root /usr/local && \
     evcxr_jupyter --install && \
     mkdir -p "${CONDA_DIR}/share/jupyter/kernels" && \
     mv "/home/${NB_USER}/.local/share/jupyter/kernels/rust" \
@@ -515,10 +523,10 @@ USER root
 # where both JupyterLab and code-server can find it.
 
 # Clone hermes-agent, build dashboard web_dist, and pip install into conda
-RUN git clone --depth 1 --branch v2026.7.30 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
-    # v2026.7.30 requires setuptools>=77 for SPDX license expression
+RUN git clone --depth 1 --branch v2026.8.19 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
+    # hermes requires setuptools>=77 for SPDX license expression
     uv pip install --system --no-cache 'setuptools>=77' && \
-    # Patch: fix two ACP cancel (stop button) bugs in Hermes v2026.7.30
+    # Patch: fix two ACP cancel (stop button) bugs (still present in v2026.8.19)
     # Bug 1: None.startswith() crash — when interrupted mid-tool-loop,
     #   run_conversation returns final_response=None; .get("final_response", "")
     #   returns None (key exists), then None.startswith() raises AttributeError
@@ -538,7 +546,7 @@ RUN git clone --depth 1 --branch v2026.7.30 https://github.com/NousResearch/herm
     npm run build && \
     cd / && \
     # Install hermes-agent into the conda environment
-    # v2026.7.30 setup.py blocks bdist_wheel outside Nix; set HERMES_NIX_BUILD=1 to allow wheel build in Docker
+    # hermes setup.py blocks bdist_wheel outside Nix; set HERMES_NIX_BUILD=1 to allow wheel build in Docker
     HERMES_NIX_BUILD=1 uv pip install --system --no-cache '/tmp/hermes-agent[acp]' && \
     # pip install doesn't include web_dist (not in package-data), so copy it manually.
     # Required by jupyter-hermes-proxy which runs `hermes dashboard --skip-build`.

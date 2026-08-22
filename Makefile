@@ -12,7 +12,7 @@
 cs1302nb := cs1302nb^0.4.23
 cs1302nb_collab := $(cs1302nb)^collab
 cs1302nb_core := $(cs1302nb)^^core
-divenb := divenb^0.2.37
+divenb := divenb^0.2.38
 divenb_collab := $(divenb)^collab
 cs2310nb := cs2310nb^0.1.2g
 cs2310nb_min := $(cs2310nb)^^min

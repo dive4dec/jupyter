@@ -1,5 +1,35 @@
 # divenb Changelog
 
+## 0.2.38 (2026-08-22)
+
+### Upgrades
+- **code-server 4.131.0 → 4.133.0**
+- **Obsidian 1.13.4 → 1.13.7** (1.13.8 shipped no Linux desktop build, only an APK)
+- **emsdk 6.0.5 → 6.0.8**
+- **TurboVNC 3.3 → 3.3.1**
+- **micromamba 2.8.1-1 → 2.9.0-0** (re-resolves the conda env on build)
+- **hermes-agent v2026.7.30 → v2026.8.19** (version 0.20.5)
+  - `agent-client-protocol` is still pinned `==0.9.0` by the `[acp]` extra, so the
+    Dockerfile's final ACP pin and the `jupyter-ai-hermes` workaround are unchanged.
+  - The two `acp_adapter/server.py` cancel/stop-button sed patches still apply
+    (code at the same logical location).
+  - `HERMES_NIX_BUILD=1` and the `web_dist` build+copy steps are still required
+    (`web_dist/` remains gitignored, not in package-data).
+  - Hermes' Matrix extra now pins `mautrix 0.21.1` / `aiohttp-socks 0.11.0` /
+    `asyncpg 0.31.0` / `aiosqlite 0.22.1` — identical to the versions the
+    Dockerfile installs separately, so no dependency conflict.
+
+### Fixes
+- **Obsidian .desktop path**: since 1.13.7 the desktop file is
+  `md.obsidian.Obsidian.desktop` (was `obsidian.desktop`). The wrapper
+  `sed` now globs `*bsidian*.desktop` under `/usr/share/applications`, so the
+  `Exec=` rewrite no longer fails with "No such file or directory".
+- **Pin `evcxr_jupyter` to 0.21.1**: the Rust-kernel step previously ran an
+  unpinned `cargo install evcxr_jupyter`, which re-resolves to the latest when
+  the layer is rebuilt. 0.22.0 depends on rust-analyzer crates requiring
+  rustc 1.95, but apt's rustc is 1.93 → build failure. Pinned to 0.21.1
+  (the documented working version) to keep the build reproducible.
+
 ## 0.1.4 (2026-08-01)
 
 ### Fixes
