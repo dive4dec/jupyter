@@ -563,8 +563,37 @@ RUN git clone --depth 1 --branch v2026.8.19 https://github.com/NousResearch/herm
         'asyncpg==0.31.*' \
         'aiohttp-socks==0.11.*' \
         && \
-    rm -rf /tmp/hermes-agent && \
     fix-permissions "${CONDA_DIR}"
+
+# Patch: hermes-agent v2026.8.19 (0.20.5) daemon_pool.py is broken on Python 3.14
+#
+# tools/daemon_pool.py ships DaemonThreadPoolExecutor._adjust_thread_count
+# hard-coded to the CPython 3.8-3.13 ThreadPoolExecutor private API
+# (self._initializer / self._initargs passed to _worker). CPython 3.14
+# removed those attributes; the initializer now lives in a WorkerContext
+# built via self._create_worker_context() and _worker's signature changed to
+# _worker(exec_ref, ctx, work_queue). Result: the FIRST submit() on any
+# DaemonThreadPoolExecutor raises
+#     AttributeError: 'DaemonThreadPoolExecutor' object has no attribute
+#     '_initializer'
+# because hermes routes EVERY tool call through that pool
+# (agent/tool_executor.py), so every tool (MCP, terminal, read_file,
+# web_search, execute_code) fails for the lifetime of the session. This
+# image runs Python 3.14, so the %%hermes persona was completely broken;
+# hosts on Python <= 3.13 are unaffected.
+#
+# Fix: overwrite the installed module with hermes_daemon_pool_314.py
+# (byte-identical to upstream except a sys.version_info >= (3, 14) guard in
+# _adjust_thread_count). Gate: hermes_daemon_pool_gate.py then exercises the
+# PATCHED (installed) pool — submit, results, daemon flag, _threads_queues
+# absence, initializer path, and a wedged-worker exit check in a subprocess
+# pinned to site-packages — failing the build on any regression.
+# Re-verify this whole step after any hermes-agent version bump.
+COPY hermes_daemon_pool_314.py /tmp/hermes-daemon-pool-314.py
+COPY hermes_daemon_pool_gate.py /tmp/hermes-daemon-pool-gate.py
+RUN mv /tmp/hermes-daemon-pool-314.py "${CONDA_DIR}/lib/python3.14/site-packages/tools/daemon_pool.py" && \
+    python3 /tmp/hermes-daemon-pool-gate.py "${CONDA_DIR}/lib/python3.14/site-packages" && \
+    rm -f /tmp/hermes-daemon-pool-gate.py
 
 USER ${NB_UID}
 
