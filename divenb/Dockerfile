@@ -592,7 +592,12 @@ RUN git clone --depth 1 --branch v2026.8.19 https://github.com/NousResearch/herm
 COPY hermes_daemon_pool_314.py /tmp/hermes-daemon-pool-314.py
 COPY hermes_daemon_pool_gate.py /tmp/hermes-daemon-pool-gate.py
 RUN mv /tmp/hermes-daemon-pool-314.py "${CONDA_DIR}/lib/python3.14/site-packages/tools/daemon_pool.py" && \
-    python3 /tmp/hermes-daemon-pool-gate.py "${CONDA_DIR}/lib/python3.14/site-packages" && \
+    # PYTHONDONTWRITEBYTECODE: keep the gate (and its subprocess) from
+    # dropping root-owned .pyc files into site-packages.
+    PYTHONDONTWRITEBYTECODE=1 python3 /tmp/hermes-daemon-pool-gate.py "${CONDA_DIR}/lib/python3.14/site-packages" && \
+    # This stage runs as root, but later fix-permissions runs as ${NB_USER}
+    # and cannot chown/chmod root-owned files — hand ownership over now.
+    chown "${NB_UID}:${NB_GID}" "${CONDA_DIR}/lib/python3.14/site-packages/tools/daemon_pool.py" && \
     rm -f /tmp/hermes-daemon-pool-gate.py
 
 USER ${NB_UID}
