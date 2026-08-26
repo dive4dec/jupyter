@@ -1,5 +1,14 @@
 # devenb Changelog
 
+## 0.2.40 (2026-08-26)
+
+### Upgrades
+- **jupyterlab-pwa 0.1.1 → 0.2.0** — PWA name is now configurable via
+  environment variables (`JUPYTERLAB_PWA_NAME`, `JUPYTERLAB_PWA_SHORT_NAME`,
+  `JUPYTERLAB_PWA_DESCRIPTION`), read at server startup. The image stays
+  neutral (default `Jupyter`); per-hub display names are set via
+  `singleuser.extraEnv` in values/hub (edbt → `EDB JHub`).
+
 ## 0.2.39 (2026-08-25)
 
 ### Fixes
