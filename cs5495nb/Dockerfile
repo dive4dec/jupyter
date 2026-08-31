@@ -1,89 +1,50 @@
-FROM quay.io/jupyter/scipy-notebook:python-3.12
+# CS5495 singleuser image — thin course layer on the standard DIVE notebook base.
+#
+# The base (divenb) already provides: JupyterLab + code-server/VS Code,
+# torch 2.11 (cu130 wheels), transformers, langchain, the full science/data-
+# science stack, language kernels, nbgrader, Hermes, etc.
+#
+# This layer adds only what CS5495 (deep learning / XAI) needs on top:
+#   - torch-lucent          : CNN activation/gradient visualisations
+#                             (2022-era; pins kornia<=0.4.1 — the one compat risk,
+#                             gated by the import check below)
+#   - inseq                 : LLM interpretability (attribution, probing, inspection)
+#                             (pulls its own nvidia-*-cu11 runtimes on Linux —
+#                             coexists with torch's cu130, ~2-3 GB)
+#   - xgboost, shap, lime, captum, eli5   : classic XAI set (was in cs5495nb 0.1.0)
+#   - langchain-community   : was in cs5495nb 0.1.0, not in current divenb
+#   - isort, gh             : were in cs5495nb 0.1.0, not in current divenb
+# transformers is already in the base (5.14.x) — deliberately NOT reinstalled.
+# torch-tensorrt is deliberately omitted (multi-GB TensorRT 11 runtime; the
+# torch-2.11-matched release is torch-tensorrt==2.11.0 — re-add only if the
+# course needs TRT engine export).
+ARG BASE_CONTAINER=registry.dive4dec.svc.cluster.local/divenb:0.2.40
 
-# Fix: https://github.com/hadolint/hadolint/wiki/DL4006
-# Fix: https://github.com/koalaman/shellcheck/wiki/SC3014
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+FROM $BASE_CONTAINER AS prod
 
-USER root
-### code-server ###
-RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.96.2 && \
-    fix-permissions "${HOME}" && \
-    fix-permissions /usr/lib/code-server/ && \
-    rm -rf ~/.cache/code-server/ && \
-    rm -rf /tmp/install.sh
-
-USER ${NB_UID}
-
-RUN mamba install -c conda-forge --yes \
-    'black' \
-    'isort' \
-    'nbgitpuller' \
-    'jupyter-resource-usage' \
-    'jupyter-vscode-proxy' \
-    'jupyterlab_code_formatter' \
-    'jupyterlab_execute_time' \
-    'numpy<2.0.0' \
-    && \
-    mamba clean --all -f -y && \
-    fix-permissions "${CONDA_DIR}" && \
-    fix-permissions "/home/${NB_USER}"
-
-RUN pip install --no-cache-dir \
-    'torch' \
-    'torch-tensorrt' \
-    'torchvision' \
-    'torchaudio' \
+RUN uv pip install --system --no-cache \
+    'torch-lucent' \
+    'inseq' \
     'xgboost' \
     'shap' \
     'lime' \
     'captum' \
     'eli5' \
-    'xgboost' \
-    && \
-    fix-permissions "${CONDA_DIR}" && \
-    fix-permissions "/home/${NB_USER}"
-
-# DIVE AI
-RUN \
-    mamba install -c conda-forge --yes \
-    'jupyter-ai=2.31.*' \
-    'gh' \
-    'langchain' \
-    'langchain-openai' \
     'langchain-community' \
-    && \
-    pip install --quiet --no-cache-dir \
-    'git+https://github.com/dive4dec/dive_ai@3b9e78f5adaa7c633c8eaf5c0ae392b1627683d6#subdirectory=dive_ai' && \
-    mamba clean --all -f -y && \    
-    fix-permissions "${CONDA_DIR}"
+    'isort' \
+    'gh' \
+    && mamba clean --all -f -y \
+    && fix-permissions /opt/conda
 
-COPY install-vscode-extension /usr/local/bin/
+# Build gate: fail if any course package fails to import on the base stack
+# (Python 3.14 / torch 2.11). torch-lucent is the highest risk (2022 pin).
+RUN python -c "import torch_lucent, inseq, xgboost, shap, lime, eli5, captum, langchain_community, isort" \
+    && python -c "import torch; print('torch', torch.__version__)"
 
-# Code extensions
-RUN for ext in \
-        ms-python.python \
-        ms-python.pylint \
-        ms-toolsai.jupyter \
-        ms-toolsai.vscode-jupyter-powertoys \
-        ms-python.black-formatter \
-        ; do \
-        code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions --install-extension "$ext"; \
-    done
+FROM prod AS default
 
-RUN for ext in \
-    GitHub.copilot-chat@0.30.2 \
-    GitHub.copilot@1.350.0 \
-    Continue.continue@1.0.24 \
-    ms-vsliveshare.vsliveshare@1.0.5857 \
-    ; do \
-    install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \
-    done
+USER ${NB_USER}
 
-# IPython config for AiMagics
-COPY --chown=${NB_USER}:${NB_GID} ipython_config.py "${CONDA_DIR}/etc/ipython/ipython_config.py"
+FROM prod AS collab
 
-# USER jovyan
-ENV TF_USE_LEGACY_KERAS=1
-ENV XLA_FLAGS=--xla_gpu_cuda_data_dir=${CONDA_DIR}/lib
-ENV LD_LIBRARY_PATH="/opt/conda/lib/:${CONDA_DIR}/lib/python3.12/site-packages/nvidia/cudnn/lib/:${CONDA_DIR}/lib/python3.12/site-packages/tensorrt_libs/:${CONDA_DIR}/lib/python3.12/site-packages/nvidia/cufft/lib/:${CONDA_DIR}/lib/python3.12/site-packages/nvidia/cusolver/lib/:${CONDA_DIR}/lib/python3.12/site-packages/nvidia/cusparse/lib/"
+USER ${NB_UID}
