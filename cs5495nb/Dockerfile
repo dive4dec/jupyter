@@ -37,8 +37,11 @@ RUN uv pip install --system --no-cache \
     && fix-permissions /opt/conda
 
 # Build gate: fail if any course package fails to import on the base stack
-# (Python 3.14 / torch 2.11). torch-lucent is the highest risk (2022 pin).
-RUN python -c "import torch_lucent, inseq, xgboost, shap, lime, eli5, captum, langchain_community, isort" \
+# (Python 3.14 / torch 2.11). torch-lucent's import name is `lucent`
+# (PyPI: torch-lucent); the optvis/modelzoo imports exercise its
+# kornia<=0.4.1 pin — the main compat risk for this layer.
+RUN python -c "from lucent.optvis import render; from lucent.modelzoo import inceptionv1" \
+    && python -c "import inseq, xgboost, shap, lime, eli5, captum, langchain_community, isort" \
     && python -c "import torch; print('torch', torch.__version__)"
 
 FROM prod AS default
