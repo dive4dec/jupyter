@@ -523,10 +523,10 @@ USER root
 # where both JupyterLab and code-server can find it.
 
 # Clone hermes-agent, build dashboard web_dist, and pip install into conda
-RUN git clone --depth 1 --branch v2026.8.19 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
+RUN git clone --depth 1 --branch v2026.8.31 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
     # hermes requires setuptools>=77 for SPDX license expression
     uv pip install --system --no-cache 'setuptools>=77' && \
-    # Patch: fix two ACP cancel (stop button) bugs (still present in v2026.8.19)
+    # Patch: fix two ACP cancel (stop button) bugs (still present in v2026.8.31)
     # Bug 1: None.startswith() crash — when interrupted mid-tool-loop,
     #   run_conversation returns final_response=None; .get("final_response", "")
     #   returns None (key exists), then None.startswith() raises AttributeError
@@ -565,7 +565,7 @@ RUN git clone --depth 1 --branch v2026.8.19 https://github.com/NousResearch/herm
         && \
     fix-permissions "${CONDA_DIR}"
 
-# Patch: hermes-agent v2026.8.19 (0.20.5) daemon_pool.py is broken on Python 3.14
+# Patch: hermes-agent v2026.8.31 (0.21.0) daemon_pool.py is broken on Python 3.14
 #
 # tools/daemon_pool.py ships DaemonThreadPoolExecutor._adjust_thread_count
 # hard-coded to the CPython 3.8-3.13 ThreadPoolExecutor private API

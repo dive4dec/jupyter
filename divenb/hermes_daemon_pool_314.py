@@ -1,6 +1,6 @@
 """Python 3.14-compatible replacement for hermes-agent's tools/daemon_pool.py.
 
-Upstream hermes-agent v2026.8.19 (version 0.20.5) shipped
+Upstream hermes-agent v2026.8.31 (version 0.21.0) shipped
 ``tools/daemon_pool.py`` with ``DaemonThreadPoolExecutor._adjust_thread_count``
 hard-coded to the CPython **3.8-3.13** private ``ThreadPoolExecutor`` API:
 it passes ``self._initializer`` and ``self._initargs`` to
