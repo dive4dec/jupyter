@@ -783,6 +783,63 @@ RUN fix-permissions "/usr/lib/code-server/lib/vscode/extensions"
 ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:${PATH}:/opt/cosmocc/bin"
 RUN chmod a+w /opt/emsdk/upstream/emscripten/cache
 
+# --- Fix jupyterlab-myst on JupyterLab 4.6 (ydoc 4 singleton) -------------------
+# Upstream fix (manifest-only, no JS change) landed on main in 97be567 (2026-06-20)
+# but is unreleased as of 2026-09-05 (latest PyPI: 2.7.0, still declares ydoc ^3).
+# Bug: https://github.com/jupyter-book/jupyterlab-myst/issues/296
+#
+# Lab 4.6's @jupyter/ydoc is a module-federation singleton pinned to ^4.0.0-b1
+# (resolves to 4.0.0). myst 2.7.0 declares ^3.0.0, so the server-side compat gate
+# (get_app_info -> _validate_compatibility, pure semver overlap vs core singletons)
+# reports the extension `status: "error"`, its view factory never registers, and
+# every .md notebook spins forever on the loading screen. The shipped JS bundles
+# carry no ydoc version of their own (0 federation refs in static/*.js) — they
+# consume the Lab core ydoc 4 singleton at runtime, exactly the ydoc-3-era case
+# Lab's 4.6 migration docs say works. So the fix is the range declaration only.
+#
+# Placed at the END of the base stage (after all labextension installs) so the
+# guard below validates the COMPLETE federated-extension set, not a subset.
+#
+# (1) Patch the installed extension manifest's ydoc range to accept 3 or 4.
+# (2) Gate the build: fail loudly if ANY federated extension (other than the
+#     deliberately-excluded @jupyter/nbgrader, see §8 below) still reports an
+#     incompatibility, so a future Lab or myst bump can't silently ship a
+#     broken .md path again.
+#
+# When jupyterlab-myst ships a release containing 97be567 (expected 2.8.0+),
+# delete the manifest patch and simply pin jupyterlab-myst>=2.8; keep the guard.
+RUN python - "$CONDA_DIR/share/jupyter/labextensions/jupyterlab-myst/package.json" <<'PYEOF'
+import json, os, shutil, sys
+mf = sys.argv[1]
+if not os.path.exists(mf + ".orig"):
+    shutil.copy(mf, mf + ".orig")           # auditable backup + instant revert
+d = json.load(open(mf))
+old = d["dependencies"]["@jupyter/ydoc"]
+d["dependencies"]["@jupyter/ydoc"] = "^3.0.0||^4.0.0"
+with open(mf, "w") as fh:
+    json.dump(d, fh, indent=2); fh.write("\n")
+print(f"jupyterlab-myst ydoc range: {old} -> {d['dependencies']['@jupyter/ydoc']}")
+PYEOF
+# Build-time guard: assert every federated extension passes the Lab compat check
+# (nbgrader excluded on purpose — it needs a real upstream fix, not a manifest
+# nudge; see §8). Fails the build with the exact conflict tuple otherwise.
+RUN python - <<'PYEOF'
+import os
+from jupyterlab.commands import get_app_info, _validate_compatibility
+lab_ext_path = os.path.join(os.environ["CONDA_DIR"], "share/jupyter/labextensions")
+i = get_app_info(app_options={"labextensions_path": [lab_ext_path]})
+bad = {}
+for n, d in i["federated_extensions"].items():
+    if n == "@jupyter/nbgrader":            # known-broken, non-blocking (see §8)
+        continue
+    e = _validate_compatibility(n, d["dependencies"], i["core_data"])
+    if e:
+        bad[n] = e
+assert not bad, f"JupyterLab extension(s) incompatible with Lab core: {bad}"
+print(f"OK: {len(i['federated_extensions']) - 1} federated extensions pass Lab compat (nbgrader excluded)")
+PYEOF
+# ---------------------------------------------------------------------------
+
 
 # ============================================================
 # Runtime pip → uv: replace pip with a uv wrapper so that both
