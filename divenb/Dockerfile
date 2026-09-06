@@ -600,6 +600,50 @@ RUN mv /tmp/hermes-daemon-pool-314.py "${CONDA_DIR}/lib/python3.14/site-packages
     chown "${NB_UID}:${NB_GID}" "${CONDA_DIR}/lib/python3.14/site-packages/tools/daemon_pool.py" && \
     rm -f /tmp/hermes-daemon-pool-gate.py
 
+# ------------------------------------------------------------------
+# ACP turn-stall watchdog — fixes %%hermes "Redirected the active turn".
+#
+# Root cause: the `hermes acp` server serializes turns per session via
+# state.is_running and folds any prompt arriving during an in-flight turn into
+# it ("active-turn redirect"), replying "Redirected the active turn with your
+# correction." When the in-flight turn wedges (dropped/hung LLM stream, or a
+# stuck approval/tool call), NOTHING clears is_running — the exception path
+# only covers exceptions, not hangs — so every later prompt is permanently
+# swallowed and answered with nothing; the magic then wrote that ack into the
+# notebook as the "answer" (the "%%hermes is broken" symptom).
+#
+# Fix (hermes-agent / acp_adapter, installed above): a server-side watchdog
+# thread that hard-interrupts a session with no client-visible activity for
+# HERMES_ACP_TURN_STALL_TIMEOUT seconds (default 300), reusing the existing
+# cancel() path (cancel_event + request_hard_interrupt). Activity-based, so a
+# long healthy streaming turn is never touched. The companion magic-side
+# changes (redirect-ack cancel+retry-once, stderr drain, meaningful timeout)
+# ship via the jupyter-ai-hermes-magics build context below.
+#
+# Re-verify this whole step after any hermes-agent version bump: the patch
+# script is assertion-guarded and fails the build if any anchor drifted.
+COPY patch_acp_adapter.py /tmp/hermes-acp-watchdog-patch.py
+COPY hermes_acp_watchdog_gate.py /tmp/hermes-acp-watchdog-gate.py
+RUN SP="${CONDA_DIR}/lib/python3.14/site-packages" && \
+    # 1) apply the assertion-guarded patch (non-zero exit => build fails if
+    #    the upstream file drifted and the patch needs re-review).
+    python3 /tmp/hermes-acp-watchdog-patch.py "$SP" && \
+    # 2) functional gate: drive the REAL patched acp_adapter with a fake agent
+    #    (no LLM) — a wedged turn must be rescued by the watchdog (redirect
+    #    ack -> hard-interrupt -> retry succeeds) and a healthy streaming turn
+    #    must NOT be interrupted. Exits non-zero => build fails.
+    HERMES_HOME=/tmp/hermes-wd-home PYTHONDONTWRITEBYTECODE=1 \
+        python3 /tmp/hermes-acp-watchdog-gate.py && \
+    # 3) hand ownership of the patched files (and their .orig-hermes-wd
+    #    rollback backups) to the notebook user — a later fix-permissions
+    #    runs as ${NB_USER} and cannot chown root-owned files.
+    chown "${NB_UID}:${NB_GID}" \
+        "$SP/acp_adapter/server.py" \
+        "$SP/acp_adapter/session.py" \
+        "$SP/acp_adapter/server.py.orig-hermes-wd" \
+        "$SP/acp_adapter/session.py.orig-hermes-wd" && \
+    rm -f /tmp/hermes-acp-watchdog-patch.py /tmp/hermes-acp-watchdog-gate.py
+
 USER ${NB_UID}
 
 # Code-server extensions (built-in --install-extension)

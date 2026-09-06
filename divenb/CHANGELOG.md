@@ -1,5 +1,43 @@
 # devenb Changelog
 
+## 0.2.45 (2026-09-07)
+
+### Upgrades
+- **jupyter-ai-hermes-magics 0.5.1 → 0.5.2.**
+
+### Fixed
+- **Dark-theme readability of the `%%hermes` streaming output.** The live
+  "thinking" response box and the "Tool calls (N)" rows were now theme-aware
+  (JupyterLab `--jp-*` tokens) instead of a fixed light background, so the
+  thinking text is legible under the dark theme (see magics 0.5.2).
+
+## 0.2.44 (2026-09-07)
+
+### Upgrades
+- **jupyter-ai-hermes-magics 0.5.0 → 0.5.1.**
+
+### Fixed
+- **ACP turn-stall watchdog (server-side).** A `%%hermes` turn that wedged
+  (hung LLM stream / stuck approval) left `state.is_running` stuck `True`, so
+  every later prompt was folded in as a "correction" and the cell returned
+  *"Redirected the active turn with your correction."* with no answer. The
+  Dockerfile now applies an assertion-guarded `patch_acp_adapter.py` that adds
+  a background turn-stall watchdog to the installed `acp_adapter/server.py`:
+  after `HERMES_ACP_TURN_STALL_TIMEOUT` seconds (default 300) of no activity,
+  a running session is hard-interrupted via the existing `cancel()` /
+  `request_hard_interrupt(tool_reason="turn_stall")` path. A new in-build
+  functional gate (`hermes_acp_watchdog_gate.py`, no LLM) drives the real
+  patched `prompt()` with a fake agent and asserts a wedged turn is rescued
+  while a healthy turn is left alone — the build fails if the patch
+  regresses or its anchors drift.
+- **`%%hermes` redirect-ack recovery + stderr drain (client side).** Shipped in
+  magics 0.5.1: the magic detects the redirect ack, cancels the stuck server
+  turn (`cancel_server_turn()`), retries once, and surfaces a clear
+  "session still wedged — run `%hermes reset`" error instead of a bogus
+  transcript; the ACP subprocess stderr is now drained so the pipe buffer can
+  no longer fill and wedge the channel; a 300 s prompt timeout now raises a
+  meaningful message.
+
 ## 0.2.40 (2026-08-26)
 
 ### Upgrades
