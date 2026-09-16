@@ -51,7 +51,7 @@ RUN apt-get update --yes && \
     pandoc texlive-xetex texlive-fonts-recommended texlive-plain-generic \
     dvisvgm latexmk biber lmodern \
     # -- Desktop --
-    fonts-liberation gpg software-properties-common emacs thonny \
+    fonts-liberation gpg software-properties-common emacs \
     dbus-x11 xfce4 xfce4-panel xfce4-session xfce4-settings xorg \
     xubuntu-icon-theme x11-utils xfonts-base xvfb \
     # -- Programming languages --
@@ -779,6 +779,31 @@ RUN mamba install --quiet --yes \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
+
+# Thonny 5 — Tkinter-based rewrite (apt's `thonny` is stuck at 4.1.7 / Qt).
+# The conda env already ships tkinter 8.6 + jedi/pylint/docutils/asttokens/
+# send2trash; uv pip pulls the remaining 5.0.0 deps (mypy, pyserial, wheel).
+# Runs as ${NB_UID} like every other `uv pip install --system` block in this
+# stage (the conda env is ${NB_UID}-owned).
+RUN uv pip install --system --no-cache 'thonny==5.0.*' \
+    && /opt/conda/bin/python -c "import importlib.metadata as m; v=m.version('thonny'); assert v.startswith('5.0'), v; print('thonny', v)" \
+    && fix-permissions "${CONDA_DIR}"
+
+# Thonny 5 desktop entry + icon. The PyPI wheel ships neither, and the system
+# dirs /usr/share/{pixmaps,applications} are root-owned, so this needs root
+# (the block above runs as ${NB_UID} and cannot write them).
+USER root
+RUN SP=$(/opt/conda/bin/python -c "import site; print(site.getsitepackages()[0])") \
+    && mkdir -p /usr/share/pixmaps \
+    && cp "${SP}/thonny/res/thonny.png" /usr/share/pixmaps/thonny.png \
+    && printf '%s\n' \
+        '[Desktop Entry]' 'Type=Application' 'Version=1.0' 'Name=Thonny' \
+        'Comment=Python IDE for beginners' \
+        'Exec=/opt/conda/bin/thonny %F' 'Icon=thonny' 'Terminal=false' \
+        'Categories=Development;IDE;Python;' 'MimeType=text/x-python;' \
+      > /usr/share/applications/org.thonny.Thonny.desktop \
+    && (update-desktop-database /usr/share/applications 2>/dev/null || true)
+USER ${NB_UID}
 
 # Copy local files (scripts + configs)
 COPY start.sh /usr/local/bin/

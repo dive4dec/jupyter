@@ -1,5 +1,17 @@
 # devenb Changelog
 
+## 0.2.46 (2026-09-07)
+
+### Upgrades
+- **Thonny 4.1.7 → 5.0.0.** The IDE for students is now Thonny 5, the
+  Tkinter-based rewrite. Thonny 5 drops the Qt/PyQt5 backend (4.x was Qt),
+  so it is installed from PyPI into the conda env (`uv pip install
+  thonny==5.0.*`) instead of the Ubuntu apt package, which is stuck at
+  4.1.7. The apt `thonny` package (and its PyQt5 deps) is removed from the
+  base image; the conda env already ships tkinter 8.6. The `.desktop`
+  launcher and icon are regenerated from the PyPI wheel (which ships
+  neither). New conda deps pulled automatically: mypy, pyserial, wheel.
+
 ## 0.2.45 (2026-09-07)
 
 ### Upgrades
