@@ -1,11 +1,20 @@
 #!/bin/bash
 # dsh-openai-shim boot hook — start the dsh OpenAI proxy daemon (a3: in-pod).
 #
-# Installed to /usr/local/bin/before-notebook.d/40-dsh-proxy.sh and run by
-# start.sh's run-hooks() immediately before the notebook is exec'd, as the
-# notebook user (jovyan) in edbt (PID 1 = tini runs as jovyan; no root->sudo
-# drop), so $HOME is the NFS home. It must not block or fail the notebook
-# start, so everything is defensive and the daemon is detached.
+# Installed to /usr/local/bin/before-notebook.d/40-dsh-proxy (NO .sh extension)
+# and run by start.sh's run-hooks() immediately before the notebook is exec'd,
+# as the notebook user (jovyan) in edbt (PID 1 = tini runs as jovyan; no
+# root->sudo drop), so $HOME is the NFS home.
+#
+# CRITICAL: this file must NOT end in .sh. run-hooks() *sources* *.sh files
+# (source "${f}") but *executes* other executable files ("${f}"). This hook
+# calls `exit`, which — if the file were sourced — would terminate start.sh
+# itself and kill the notebook boot. As a child process, `exit` is safe and
+# its `set +e` cannot leak into start.sh. It needs no env from the parent
+# (it uses $HOME + the on-disk proxy.conf), so a clean child is correct.
+#
+# It must not block or fail the notebook start, so everything is defensive and
+# the daemon is detached.
 #
 # The proxy is the intended way to drive dsh (terminal / code-server / VS Code
 # point dsh at this loopback endpoint). Provider selection (diveai | litellm |
@@ -31,8 +40,16 @@ if ! command -v dsh-proxy >/dev/null 2>&1; then
     exit 0
 fi
 
-# Already up? Do nothing (e.g. RESTARTABLE re-runs the hook).
-if dsh-proxy status 2>/dev/null | grep -q "running"; then
+# `bash 40-dsh-proxy.sh status` → report and exit (used for diagnostics).
+if [ "$1" = "status" ]; then
+    dsh-proxy status
+    exit $?
+fi
+
+# Already up? Do nothing (e.g. RESTARTABLE re-runs the hook). Branch on the
+# exit code — 0 means running. (Do NOT grep the text: "not running" contains
+# the substring "running".)
+if dsh-proxy status >/dev/null 2>&1; then
     echo "[dsh-proxy] shim already running on ${DSH_SHIM_PORT}; leaving it"
     exit 0
 fi
