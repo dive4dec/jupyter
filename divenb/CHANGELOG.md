@@ -1,5 +1,115 @@
 # devenb Changelog
 
+## 0.2.49 (2026-09-17)
+
+### Removed
+- **The `jupyter-ai-dsh` ACP persona** (added in 0.2.48, same-day). dsh is now
+  driven through the **`dsh-openai-shim` proxy** — the intended, dsh-native way —
+  instead of a Jupyter AI persona. The persona fought dsh's design (it had to
+  invent a per-session working dir dsh never asked for; a home-wide `glob`
+  overflowed the model context and deadlocked the ACP turn). The persona package
+  and its `--build-context` are removed from the image.
+
+### Added
+- **dsh proxy as a first-class in-pod service** (`before-notebook.d` boot hook,
+  `divenb/before-notebook.d/40-dsh-proxy.sh`): starts the `dsh-openai-shim`
+  daemon as the notebook user on `127.0.0.1:8090`, reading the provider from
+  `~/.dsh/proxy.conf`. This is the (a3) model — dsh is used from the terminal /
+  code-server (VS Code) already in the image, with the loopback proxy as the
+  shared OpenAI-compatible endpoint. Multi-session / multi-folder is free: the
+  proxy is stateless; each dsh workspace carries its own working dir.
+- **`dsh-proxy` CLI** (in `dsh-openai-shim`): `show` / `use diveai|litellm|custom`
+  / `status` / `init` / `serve`. Default provider is **DiveAI**; students switch
+  to the per-user **LiteLLM** provider or their own endpoint. The choice is
+  persisted to `~/.dsh/proxy.conf` (NFS home) and **never clobbered** on restart
+  (mirrors the jupyter-ai-hermes default-provider pattern).
+- **`DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`** in the spawner `extraEnv` point
+  dsh at the loopback proxy, so any dsh invocation (terminal, code-server, VS
+  Code) works with no extra setup. The per-user `LITELLM_API_KEY` already in the
+  pod env is picked up by the proxy at serve time.
+
+### Notes
+- 0.2.49 is **not** a superset of 0.2.48 — the persona that 0.2.48 added is
+  gone. If you deployed 0.2.48 expecting a dsh entry in Jupyter AI, it is no
+  longer there by design; use the proxy instead.
+
+## 0.2.48 (2026-09-17)
+
+> **Superseded:** the `jupyter-ai-dsh` persona added here was **removed in
+> 0.2.49** in favor of the in-pod proxy. Do not target 0.2.48 for the persona.
+
+### Added
+- **`jupyter-ai-dsh` — a dsh ACP persona for Jupyter AI** (new repo,
+  `~/dive-deploy/jupyter-ai-dsh`). It drives `dsh --profile acp` as the agent
+  backend, mirroring `jupyter-ai-hermes`. Before every message it:
+  1. lazily starts the `dsh-openai-shim` sidecar (`ensure_shim()`, in a worker
+     thread so it never blocks the server's event loop);
+  2. writes a `--patch` overlay that overrides the `acp` profile's LLM
+     provider + model (the only supported way to select a model — there is no
+     `--model` flag); the correct overlay id is `acp` (verified via
+     `--dump-config`; `dsh-acp` is a silent no-op);
+  3. points `DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY` at the shim (dummy key —
+     the shim injects the real `DSH_SHIM_UPSTREAM_KEY` upstream);
+  4. injects live notebook context (active notebook + current cell) and the
+     `jupyter-mcp-cli` tool docs, reusing `jupyter_ai_hermes.jupyter_context`
+     and `MCP_TOOLS_DOC` so the two personas stay in lockstep.
+
+- **Install:** added to the `divenb` build as a new `--build-context
+  jupyter-ai-dsh=...` and installed with `uv pip install --system --no-deps`
+  after `jupyter-ai-hermes` and `dsh-openai-shim` (its two runtime deps are
+  local build-context packages already present in the image — a plain install
+  would try to fetch them from PyPI and fail). A build-time sanity check
+  imports `jupyter_ai_dsh.dsh` to prove the chain resolves.
+
+### Notes
+- The persona is **inert until `DSH_SHIM_UPSTREAM` is set** in the spawner env;
+  without it, `before_agent_subprocess` raises `PersonaRequirementsUnmet` and
+  Jupyter AI marks the persona unavailable instead of failing every message.
+- Model / provider / profile are overridable via `DSH_ACP_MODEL` /
+  `DSH_ACP_PROVIDER` / `DSH_ACP_PROFILE` (defaults `Socrates` /
+  `deepseek-official` / `acp`). The model overlay file defaults to
+  `/tmp/dsh-acp-model.yml` (ephemeral) so it stays off the NFS home.
+- 5 unit tests cover the model-patch writer, the executable argv, the
+  `before_agent_subprocess` env plumbing, and the no-upstream guard.
+
+## 0.2.47 (2026-09-17)
+
+### Added
+- **DeepSeek Harness (`dsh`) + `dsh-openai-shim`.** The image now ships the
+  dsh agent runtime and a small OpenAI-compatible shim that adapts dsh's
+  `deepseek-official` route to any OpenAI-compatible endpoint (Socrates /
+  LiteLLM / sglang / vLLM). The shim remaps `reasoning_effort` (dsh hard-injects
+  `high`, which Socrates rejects) and clamps `max_tokens` to the model's context
+  window — the two param mismatches that otherwise 400.
+
+- **Layering:** the dsh runtime (~262MB, self-contained Node binary, "exe mode"
+  — no system `node` needed at runtime) and the shim install into the **conda
+  env** (`/opt/conda`) via `uv pip install --system` — the ephemeral image layer,
+  exactly like every other package in this image (never `--user` / `~/.local`).
+  Only `DSH_HOME` (`$HOME/.dsh`) is written, and dsh writes it **itself** at
+  runtime (profiles / sessions / user plugins) into the **NFS-mounted home**.
+  A fresh home is fine — dsh auto-initializes its profile skeleton on first use.
+
+- **`pnpm`** installed into conda — needed only for `dsh plugin add` (installing
+  user plugins into `DSH_HOME`); running dsh needs no pnpm.
+
+- **`dsh-openai-shim` package** (new repo, `~/dive-deploy/dsh-openai-shim`):
+  zero-dependency stdlib-only proxy. `python -m dsh_openai_shim.cli serve` /
+  `dsh-openai-shim serve`, plus a library API
+  (`apply_rewrites`, `make_handler`, `ensure_shim`, `stop_shim`) and an
+  `ensure_shim()` lazy-spawn helper so a persona/magic can start the sidecar as
+  the current user with no init-system hook (mirrors how `%%hermes` lazily
+  spawns `hermes acp`). 14 tests, incl. an end-to-end run against a local fake
+  OpenAI upstream.
+
+### Notes
+- dsh is a **developer preview** with breaking changes — pinned to
+  `deepseek-harness-sdk==0.1.5rc1` deliberately.
+- The shim is **opt-in per hub**: it reads `DSH_SHIM_UPSTREAM` /
+  `DSH_SHIM_UPSTREAM_KEY` from the spawner environment. With no env set it does
+  nothing — the image change is inert until a hub wires it up. The real endpoint
+  key lives only in the shim; dsh connects with a dummy key.
+
 ## 0.2.46 (2026-09-07)
 
 ### Upgrades

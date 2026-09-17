@@ -743,6 +743,50 @@ RUN uv pip install --system --no-cache /tmp/jupyter-ai-hermes-magics && \
     rm -rf /tmp/jupyter-ai-hermes-magics && \
     fix-permissions "${CONDA_DIR}"
 
+# ──────────────────────────────────────────────────────────────────────────
+# DeepSeek Harness (dsh) + dsh-openai-shim
+#
+# Layering (IMPORTANT): the dsh runtime (~262MB, self-contained Node binary) and
+# the shim are installed into the CONDA ENV (/opt/conda) — the ephemeral image
+# layer — using the same `uv pip install --system` pattern as every other package
+# here (never `--user`, never ~/.local). Nothing in this block touches the user
+# home. Only DSH_HOME ($HOME/.dsh) is written, and it is written by dsh itself at
+# RUNTIME (profiles/sessions/user plugins), which is the NFS-mounted home. A
+# fresh home is fine: dsh auto-initializes its profile skeleton on first use.
+#
+#   deepseek-harness-sdk   → the Python SDK + `dsh` CLI + 262MB runtime binary
+#   dsh-openai-shim        → zero-dep OpenAI-compatible proxy (build context);
+#                            remaps reasoning_effort + clamps max_tokens so dsh's
+#                            DeepSeek route works against Socrates/LiteLLM/sglang
+#   pnpm                   → needed ONLY for `dsh plugin add` (installing user
+#                            plugins into DSH_HOME); running dsh needs no pnpm
+#
+# The pinned 0.1.5rc1 is an explicit prerelease version, so it installs without
+# `--pre` (verified). dsh is "developer preview" — pin deliberately.
+# ──────────────────────────────────────────────────────────────────────────
+COPY --from=dsh-openai-shim --chown=${NB_USER}:${NB_GID} . /tmp/dsh-openai-shim
+# Hard install: shim + dsh runtime + pnpm, all into the conda env (ephemeral layer).
+# Node 24 is already in conda (line ~319), so npm is available.
+#   --cache /tmp/dsh-npm-cache: the in-image /home/${NB_USER}/.npm is left
+#   root-owned by an earlier root step, so npm's default cache EACCES as ${NB_UID};
+#   using an ephemeral cache sidesteps it (and keeps the npm cache off the home).
+RUN uv pip install --system --no-cache /tmp/dsh-openai-shim \
+    && uv pip install --system --no-cache 'deepseek-harness-sdk==0.1.5rc1' \
+    && /opt/conda/bin/python -c "import dsh_openai_shim, deepseek_harness; print('dsh runtime + shim imported ok')" \
+    && npm install -g --no-fund --no-audit --cache /tmp/dsh-npm-cache pnpm \
+    && rm -rf /tmp/dsh-openai-shim /tmp/dsh-npm-cache \
+    && fix-permissions "${CONDA_DIR}"
+# Non-fatal sanity: surface the resolved paths/versions in the build log.
+RUN echo "dsh CLI:  $(command -v dsh || echo 'MISSING — check PATH')" \
+    && echo "pnpm:   $(pnpm --version 2>/dev/null || echo 'MISSING')" \
+    && echo "shim:   $(command -v dsh-openai-shim || echo 'MISSING')"
+
+# ──────────────────────────────────────────────────────────────────────────
+# NOTE: the jupyter-ai-dsh ACP *persona* was removed (0.2.49). dsh is now used
+# via the dsh-openai-shim proxy + a `before-notebook.d` boot hook (below), not
+# as a Jupyter AI persona. The shim + dsh runtime above are unchanged.
+# ──────────────────────────────────────────────────────────────────────────
+
 # Install jupyter-python-tutor from build context (%%pytutor cell magic)
 COPY --from=jupyter-python-tutor --chown=${NB_USER}:${NB_GID} . /tmp/jupyter-python-tutor
 RUN uv pip install --system --no-cache /tmp/jupyter-python-tutor && \
@@ -810,6 +854,11 @@ COPY start.sh /usr/local/bin/
 COPY start-notebook.sh start-singleuser.sh /usr/local/bin/
 COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 COPY --chown="${NB_UID}:${NB_GID}" ipython_config.py "${CONDA_DIR}/etc/ipython/ipython_config.py"
+# dsh OpenAI proxy boot hook — start.sh runs /usr/local/bin/before-notebook.d/*
+# as the notebook user right before exec'ing the server. Starts the shim from
+# ~/.dsh/proxy.conf (default DiveAI, student-overridable). See the .sh header.
+COPY before-notebook.d /usr/local/bin/before-notebook.d
+RUN chmod +x /usr/local/bin/before-notebook.d/*.sh
 
 FROM base AS prod
 
