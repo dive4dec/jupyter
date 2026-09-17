@@ -854,12 +854,16 @@ COPY start.sh /usr/local/bin/
 COPY start-notebook.sh start-singleuser.sh /usr/local/bin/
 COPY jupyter_server_config.py docker_healthcheck.py /etc/jupyter/
 COPY --chown="${NB_UID}:${NB_GID}" ipython_config.py "${CONDA_DIR}/etc/ipython/ipython_config.py"
-# dsh OpenAI proxy boot hook — start.sh's run-hooks() executes *.sh files in
-# /usr/local/bin/before-notebook.d as the notebook user right before exec'ing
-# the server. The .sh must be committed executable (100755) so COPY preserves
-# the exec bit (no chmod step — the active user is NB_UID and can't chmod the
-# root-owned COPY output). Starts the shim from ~/.dsh/proxy.conf (default
-# DiveAI, student-overridable via dsh-proxy use ...). See the .sh header.
+# dsh OpenAI proxy boot hook — start.sh's run-hooks() runs /usr/local/bin/
+# before-notebook.d/* as the notebook user right before exec'ing the server.
+# CRITICAL: run-hooks() *sources* *.sh files but *executes* other executable
+# files, so this hook is `40-dsh-proxy` (NO .sh) — an `exit` in a sourced .sh
+# would kill start.sh before the Jupyter server starts. It must be committed
+# executable (100755) so COPY preserves the exec bit (no chmod step — the
+# active user is NB_UID and can't chmod the root-owned COPY output). Starts the
+# shim from ~/.dsh/proxy.conf (default LiteLLM — DiveAI 404s on
+# /chat/completions so it is not a valid default; student-overridable via
+# dsh-proxy use ...). See the hook header.
 COPY before-notebook.d /usr/local/bin/before-notebook.d
 
 FROM base AS prod

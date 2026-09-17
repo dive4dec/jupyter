@@ -1,5 +1,35 @@
 # devenb Changelog
 
+## 0.2.50 (2026-09-17)
+
+### Fixed (three boot-breaking bugs found by throwaway-pod verification)
+- **The `before-notebook.d` hook was `40-dsh-proxy.sh`; `start.sh`'s
+  `run-hooks()` *sources* `*.sh` files, so the hook's `exit 0` would have
+  terminated `start.sh` itself and the Jupyter server would never start.**
+  Renamed to `40-dsh-proxy` (no extension) — `run-hooks()` *executes* other
+  executable files as child processes, where `exit` is safe.
+- **The hook's "already running?" guard (`grep -q running`) matched the
+  substring in "not running", so the daemon was never started on a fresh pod.**
+  `dsh-proxy status` now returns a real exit code (0=running, 1=not) and the
+  hook branches on it.
+- **`dsh-proxy serve` (the daemon) never wrote its pidfile, so
+  `dsh-proxy use <provider>` couldn't stop the running shim to pick up the new
+  provider.** `serve` now writes/removes its own PID.
+
+### Changed
+- **Default provider is now LiteLLM** (the per-user key, verified
+  end-to-end). DiveAI is deliberately not the default:
+  `dive.cs.cityu.edu.hk/ai/v1` 404s on `/chat/completions` and is therefore not
+  an OpenAI-chat endpoint dsh can speak to. It remains available via
+  `dsh-proxy use diveai` should it gain such a path.
+
+### Notes
+- 0.2.50 is a **clean re-tag of the fixed build**. The 0.2.49 tag already in
+  the registry is the pre-fix build (the three bugs above). Because the spawner
+  uses `imagePullPolicy: IfNotPresent` and a verification pod already pulled the
+  broken 0.2.49 to a node, reusing the tag risked serving the stale cached
+  image — 0.2.50 avoids that.
+
 ## 0.2.49 (2026-09-17)
 
 ### Removed
@@ -19,10 +49,13 @@
   shared OpenAI-compatible endpoint. Multi-session / multi-folder is free: the
   proxy is stateless; each dsh workspace carries its own working dir.
 - **`dsh-proxy` CLI** (in `dsh-openai-shim`): `show` / `use diveai|litellm|custom`
-  / `status` / `init` / `serve`. Default provider is **DiveAI**; students switch
-  to the per-user **LiteLLM** provider or their own endpoint. The choice is
-  persisted to `~/.dsh/proxy.conf` (NFS home) and **never clobbered** on restart
-  (mirrors the jupyter-ai-hermes default-provider pattern).
+  / `status` / `init` / `serve`. Default provider is **LiteLLM** (the per-user
+  key, verified end-to-end). **DiveAI is deliberately not the default** —
+  `dive.cs.cityu.edu.hk/ai/v1` 404s on `/chat/completions`, so it is not an
+  OpenAI-chat endpoint dsh can speak to (it is kept as an option via
+  `dsh-proxy use diveai`). The choice is persisted to `~/.dsh/proxy.conf`
+  (NFS home) and **never clobbered** on restart (mirrors the jupyter-ai-hermes
+  default-provider pattern).
 - **`DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`** in the spawner `extraEnv` point
   dsh at the loopback proxy, so any dsh invocation (terminal, code-server, VS
   Code) works with no extra setup. The per-user `LITELLM_API_KEY` already in the
