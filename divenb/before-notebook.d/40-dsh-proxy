@@ -36,6 +36,61 @@ set +e
 export DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 export DSH_SHIM_PORT="${DSH_SHIM_PORT:-8090}"
 
+# ── Seed the default model (hermes-style: default-on-first-run, never clobbered) ──
+#
+# $HOME is the NFS mountpoint, so the image's /home/jovyan is fully shadowed —
+# we cannot "bake" the default into the home. Instead, on FIRST boot (when the
+# user's NFS home has no dsh config yet) we write ~/.dsh/settings.yaml with a
+# sane default: provider=deepseek-official routed at our :8090 shim (via the
+# DEEPSEEK_BASE_URL the spawner sets), model=Socrates (the only model the
+# per-user LiteLLM key is allowed). This is the same "seed once, don't clobber"
+# contract as the proxy.conf block in dsh-proxy init: we only write when the
+# file is ABSENT, so a student who later edits it (to switch model, or to add
+# models) keeps their choice.
+#
+# settings.yaml is read by BOTH launch paths — the dsh web server the VS Code
+# extension drives, and `dsh` run directly in a terminal — so the default is
+# consistent everywhere. The dsh-settings-file plugin hot-published this on
+# write (verified: the running web process picked up the change without a
+# restart).
+#
+# Only seed agent-default-model + a minimal catalog. We deliberately do NOT
+# try to discover the upstream's real model list here (it would need the
+# per-user key); the default works out-of-the-box because the shim routes
+# Socrates regardless of catalog, and a catalog override here would otherwise
+# risk hiding models a future key does allow. Students can extend the catalog
+# under `llm-deepseek.models` in the same file.
+SETTINGS="${DSH_HOME}/settings.yaml"
+if [ ! -e "$SETTINGS" ]; then
+    mkdir -p "$DSH_HOME" 2>/dev/null
+    if ( : > "$SETTINGS" ) 2>/dev/null; then
+        cat > "$SETTINGS" 2>/dev/null <<'DSEOF'
+# dsh default model — seeded on first boot; edit freely (persists on NFS).
+# Both the in-editor @dsh chat and `dsh` run in a terminal read this file.
+#
+# agent-default-model = the model used when nothing else is chosen.
+#   provider must be "deepseek-official"; it is routed at the in-pod shim
+#   (DEEPSEEK_BASE_URL) regardless of the name.
+#   To use a different model, change `model:` below, or pick one in the chat.
+#
+# llm-deepseek.models = the model picker's list. Socrates is the only model
+#   the per-user key can use right now; add more here as LiteLLM exposes them.
+agent-default-model:
+  provider: deepseek-official
+  model: Socrates
+  reasoningEffort: high
+llm-deepseek:
+  models:
+    - id: Socrates
+      name: Socrates
+      contextWindow: 262144
+      inputModalities: [text]
+DSEOF
+        chmod 600 "$SETTINGS" 2>/dev/null
+        echo "[dsh-proxy] seeded default dsh model (Socrates) at $SETTINGS"
+    fi
+fi
+
 if ! command -v dsh-proxy >/dev/null 2>&1; then
     echo "[dsh-proxy] dsh-proxy not on PATH; skipping shim start" >&2
     exit 0
