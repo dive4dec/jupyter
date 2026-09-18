@@ -681,6 +681,18 @@ RUN for ext in \
     sed -i 's/bn=ln(dn,\["navigator"\])/bn=function(){return navigator}/' \
         /usr/lib/code-server/lib/vscode/extensions/formulahendry.acp-client-*/dist/extension.js
 
+# DeepSeek Harness for VS Code (Jager.dsh-vscode) — community extension providing
+# the @dsh chat participant in code-server. Shipped as a checked-in VSIX (the
+# marketplace vspackage download is gzip-wrapped; a plain `code-server
+# --install-extension <publisher>.<name>` also fails because code-server does not
+# query the VS Marketplace by default). The VSIX is version-pinned in the repo
+# (extensions/dsh-vscode-0.13.17.vsix); bump the file + this line together.
+COPY --chown=${NB_USER}:${NB_GID} extensions/dsh-vscode-0.13.17.vsix /tmp/dsh-vscode.vsix
+RUN code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions \
+        --install-extension /tmp/dsh-vscode.vsix --force \
+    && rm -f /tmp/dsh-vscode.vsix \
+    && echo "dsh-vscode extension: $(ls /usr/lib/code-server/lib/vscode/extensions/ | grep -i dsh || echo MISSING)"
+
 # Jupyter AI
 RUN uv pip install --system --no-cache \
     'jupyter-ai==3.1.*' \
@@ -746,45 +758,52 @@ RUN uv pip install --system --no-cache /tmp/jupyter-ai-hermes-magics && \
 # ──────────────────────────────────────────────────────────────────────────
 # DeepSeek Harness (dsh) + dsh-openai-shim
 #
-# Layering (IMPORTANT): the dsh runtime (~262MB, self-contained Node binary) and
+# Layering (IMPORTANT): the dsh runtime (~262MB, self-contained Node SEA) and
 # the shim are installed into the CONDA ENV (/opt/conda) — the ephemeral image
-# layer — using the same `uv pip install --system` pattern as every other package
-# here (never `--user`, never ~/.local). Nothing in this block touches the user
-# home. Only DSH_HOME ($HOME/.dsh) is written, and it is written by dsh itself at
-# RUNTIME (profiles/sessions/user plugins), which is the NFS-mounted home. A
-# fresh home is fine: dsh auto-initializes its profile skeleton on first use.
+# layer — using `uv pip install --system` (shim) and `npm i -g` (dsh runtime).
+# Never `--user`, never ~/.local. Nothing in this block touches the user home.
+# Only DSH_HOME ($HOME/.dsh) is written by dsh itself at RUNTIME (profiles/
+# sessions/user plugins) on the NFS-mounted home. A fresh home is fine: dsh
+# auto-initializes its profile skeleton on first use.
 #
-#   deepseek-harness-sdk   → the Python SDK + `dsh` CLI + 262MB runtime binary
+#   @deepseek-ai/dsh (npm) → the complete dsh CLI + Web UI + ACP + 262MB runtime
+#                            (replaces deepseek-harness-sdk 0.1.5rc1 which was
+#                            the SDK-focused build missing web-app frontend)
 #   dsh-openai-shim        → zero-dep OpenAI-compatible proxy (build context);
 #                            remaps reasoning_effort + clamps max_tokens so dsh's
 #                            DeepSeek route works against Socrates/LiteLLM/sglang
-#   pnpm                   → needed ONLY for `dsh plugin add` (installing user
-#                            plugins into DSH_HOME); running dsh needs no pnpm
+#   pnpm                   → needed ONLY for `dsh plugin add`; running dsh needs no pnpm
 #
-# The pinned 0.1.5rc1 is an explicit prerelease version, so it installs without
-# `--pre` (verified). dsh is "developer preview" — pin deliberately.
+# The npm `dsh` reads DEEPSEEK_BASE_URL + DEEPSEEK_API_KEY env at runtime
+# (confirmed in source: "DEEPSEEK_BASE_URL wins when set"), so the spawner-
+# injected env (→ :8090 shim) auto-routes all dsh LLM calls through the shim
+# without any profile patch.
 # ──────────────────────────────────────────────────────────────────────────
 COPY --from=dsh-openai-shim --chown=${NB_USER}:${NB_GID} . /tmp/dsh-openai-shim
-# Hard install: shim + dsh runtime + pnpm, all into the conda env (ephemeral layer).
-# Node 24 is already in conda (line ~319), so npm is available.
+# Hard install: shim (pip) + dsh npm distro (npm -g) + pnpm, all into the
+# conda env (ephemeral layer). Node 24 is already in conda (line ~319).
 #   --cache /tmp/dsh-npm-cache: the in-image /home/${NB_USER}/.npm is left
 #   root-owned by an earlier root step, so npm's default cache EACCES as ${NB_UID};
-#   using an ephemeral cache sidesteps it (and keeps the npm cache off the home).
+#   using an ephemeral cache sidesteps it.
+#   --force: overwrites the conda bin/dsh if a previous layer left one (e.g.
+#   the PyPI deepseek-harness-sdk that 0.2.48-0.2.50 installed).
 RUN uv pip install --system --no-cache /tmp/dsh-openai-shim \
-    && uv pip install --system --no-cache 'deepseek-harness-sdk==0.1.5rc1' \
-    && /opt/conda/bin/python -c "import dsh_openai_shim, deepseek_harness; print('dsh runtime + shim imported ok')" \
+    && npm install -g --force --no-fund --no-audit --cache /tmp/dsh-npm-cache \
+        '@deepseek-ai/dsh@0.1.5-rc.2' \
     && npm install -g --no-fund --no-audit --cache /tmp/dsh-npm-cache pnpm \
     && rm -rf /tmp/dsh-openai-shim /tmp/dsh-npm-cache \
     && fix-permissions "${CONDA_DIR}"
 # Non-fatal sanity: surface the resolved paths/versions in the build log.
-RUN echo "dsh CLI:  $(command -v dsh || echo 'MISSING — check PATH')" \
+RUN echo "dsh CLI:  $(command -v dsh || echo 'MISSING — check PATH') v$(dsh --version 2>/dev/null | head -1)" \
+    && echo "dsh web: $(dsh web --help 2>&1 | head -1)" \
     && echo "pnpm:   $(pnpm --version 2>/dev/null || echo 'MISSING')" \
     && echo "shim:   $(command -v dsh-openai-shim || echo 'MISSING')"
 
 # ──────────────────────────────────────────────────────────────────────────
 # NOTE: the jupyter-ai-dsh ACP *persona* was removed (0.2.49). dsh is now used
-# via the dsh-openai-shim proxy + a `before-notebook.d` boot hook (below), not
-# as a Jupyter AI persona. The shim + dsh runtime above are unchanged.
+# via the dsh-openai-shim proxy + the `Jager.dsh-vscode` code-server extension
+# (in-editor @dsh chat, installed in the code-server extensions block below),
+# not as a Jupyter AI persona.
 # ──────────────────────────────────────────────────────────────────────────
 
 # Install jupyter-python-tutor from build context (%%pytutor cell magic)
@@ -800,13 +819,25 @@ RUN uv pip install --system --no-cache /tmp/jupyter-cpp-tutor && \
     fix-permissions "${CONDA_DIR}"
 
 # Plotly + data viz + marimo + JupyterLab extensions + nbgrader + course widgets
-RUN mamba install --quiet --yes \
+#
+# --build-constraints: hatchling<=1.32.1. hatchling is a build-ISOLATION dep (not
+# a runtime dep — absent from the final env) pulled in to build nbgrader/marimo
+# from source, whose build hook is hatch-jupyter-builder (stuck at 0.9.1, 2024).
+# hatchling 1.32.3 (released 2026-09-17, after the 0.2.50 build) changed
+# BuildHookInterface to a 2-param generic, so the old 1-param
+# `JupyterBuildHook(BuildHookInterface[JupyterBuildConfig])` subclass raises
+# "Too few arguments" at build time. 1.32.1 is the last compatible release and
+# is what the working 0.2.50 image resolved. Pin is a build-constraint (not -c,
+# which would leak hatchling into the runtime env).
+RUN printf 'hatchling<=1.32.1\n' > /tmp/hatchling-build-constraints.txt && \
+    mamba install --quiet --yes \
     'plotly=6.9.*' \
     'sqlglot=28.10.*' \
     'polars=1.43.*' \
     'duckdb=1.5.*' \
     && \
     uv pip install --system --no-cache \
+    --build-constraints /tmp/hatchling-build-constraints.txt \
     'divewidgets' \
     'nbgrader@git+https://github.com/dive4dec/nbgrader.git@8e0b69a6da48856e6f180d27041b6e1c96602934' \
     'jdc' \

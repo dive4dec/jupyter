@@ -1,5 +1,40 @@
 # devenb Changelog
 
+## 0.2.51 (2026-09-18)
+
+### Added
+- **In-editor dsh chat via the `Jager.dsh-vscode` code-server extension.**
+  Baked into the code-server system extensions dir (NFS-proof, the same dir as
+  the other ~15 built-in extensions). Students get the `@dsh` chat participant
+  in the native Chat panel, a secondary sidebar / standalone chat window,
+  `@file`/`@session`/`@agent` mentions, image attachments, model/preset/permission
+  controls, and turn-level Git rollback — no marketplace install step.
+- The extension is a **client to the `dsh web` server** (it auto-starts
+  `dsh web` on code-server startup via `dsh.autoStart`). Verified in-pod:
+  `engines.vscode ^1.90.0` is satisfied by code-server 4.133.0 (Code 1.133.0).
+
+### Changed
+- **dsh runtime: PyPI `deepseek-harness-sdk==0.1.5rc1` → npm
+  `@deepseek-ai/dsh@0.1.5-rc.2`.** The PyPI build was the *SDK-focused*
+  distribution whose baked Node SEA snapshot omitted the web-app frontend
+  (`dsh web` crashed with `Cannot find package
+  '@deepseek-ai/dsh-session-title-llm'`). The npm distro is the *complete*
+  package (CLI + `dsh web` + ACP + the web-app frontend packages).
+- **No provider config required for the web chat.** The npm `dsh`'s deepseek
+  provider reads `DEEPSEEK_BASE_URL`/`DEEPSEEK_API_KEY` from the environment
+  (source-confirmed: "DEEPSEEK_BASE_URL wins when set"), and the spawner already
+  injects `DEEPSEEK_BASE_URL=http://127.0.0.1:8090/v1` + a per-user key — so the
+  in-editor chat auto-routes through the same in-pod `dsh-openai-shim` →
+  Socrates that the terminal dsh CLI uses. One config drives both.
+- The `dsh-openai-shim` boot hook (`before-notebook.d/40-dsh-proxy`) is
+  unchanged — it still starts the `:8090` proxy at pod spawn.
+
+### Notes
+- The extension is shipped as a version-pinned VSIX in the repo
+  (`extensions/dsh-vscode-0.13.17.vsix`). To bump it: download the new VSIX
+  (gunzip the marketplace vspackage), replace the file, update the `COPY` +
+  `--install-extension` line in the Dockerfile.
+
 ## 0.2.50 (2026-09-17)
 
 ### Fixed (three boot-breaking bugs found by throwaway-pod verification)

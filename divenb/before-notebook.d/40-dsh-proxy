@@ -19,7 +19,8 @@
 # The proxy is the intended way to drive dsh (terminal / code-server / VS Code
 # point dsh at this loopback endpoint). Provider selection (diveai | litellm |
 # custom) comes from ~/.dsh/proxy.conf — written on first run with the default
-# (DiveAI) and never clobbered when a student has chosen another.
+# (LiteLLM; DiveAI 404s on /chat/completions so it is not a valid default) and
+# never clobbered when a student has chosen another.
 #
 # Layering (mirrors the dsh runtime): the shim process runs from the conda env
 # (ephemeral image layer) and logs to /tmp (ephemeral). It never writes to the
