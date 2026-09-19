@@ -800,6 +800,24 @@ RUN echo "dsh CLI:  $(command -v dsh || echo 'MISSING — check PATH') v$(dsh --
     && echo "shim:   $(command -v dsh-openai-shim || echo 'MISSING')"
 
 # ──────────────────────────────────────────────────────────────────────────
+# dsh web UI: DISABLE the launch-token/cookie requirement (divendb-only).
+# `dsh --profile web` mints a random launch token and gates the page + every
+# /api + WebSocket call behind a token->signed-cookie exchange; there is no
+# flag/env/config to turn it off. In this image the server binds 127.0.0.1
+# only and is reachable ONLY via the code-server port-forward, which is itself
+# behind JupyterHub auth (and implies full pod shell) — so the token adds no
+# real security, only friction. The patch removes the token/cookie requirement
+# while KEEPING the loopback host-fence (isTrustedApiRequest -> 403), the real
+# network boundary. Deterministic + loud: if a future dsh version bumps change
+# the source shape, the assertions below fail the build rather than silently
+# shipping a token-gated image. (Divendb-specific; not a dsh upstream change.)
+# ──────────────────────────────────────────────────────────────────────────
+COPY --chown=${NB_USER}:${NB_GID} dsh-web-tokenless.py /tmp/dsh-web-tokenless.py
+RUN python /tmp/dsh-web-tokenless.py \
+    && rm -f /tmp/dsh-web-tokenless.py \
+    && grep -c "dsh-web-tokenless" /opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
+
+# ──────────────────────────────────────────────────────────────────────────
 # NOTE: the jupyter-ai-dsh ACP *persona* was removed (0.2.49). dsh is now used
 # via the dsh-openai-shim proxy + the `Jager.dsh-vscode` code-server extension
 # (in-editor @dsh chat, installed in the code-server extensions block below),
