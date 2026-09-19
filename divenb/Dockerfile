@@ -688,10 +688,24 @@ RUN for ext in \
 # query the VS Marketplace by default). The VSIX is version-pinned in the repo
 # (extensions/dsh-vscode-0.13.17.vsix); bump the file + this line together.
 COPY --chown=${NB_USER}:${NB_GID} extensions/dsh-vscode-0.13.17.vsix /tmp/dsh-vscode.vsix
+COPY --chown=${NB_USER}:${NB_GID} assets/dsh-icon-whale.png /tmp/dsh-icon-whale.png
 RUN code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions \
         --install-extension /tmp/dsh-vscode.vsix --force \
     && rm -f /tmp/dsh-vscode.vsix \
-    && echo "dsh-vscode extension: $(ls /usr/lib/code-server/lib/vscode/extensions/ | grep -i dsh || echo MISSING)"
+    && DSH_EXT=$(ls -d /usr/lib/code-server/lib/vscode/extensions/jager.dsh-vscode-* | head -1) \
+    # The bundled media/icon.png is a FULL-COLOR app icon (blue gradient, opaque
+    # canvas). VS Code renders activity-bar / sidebar-view icons as MONOCHROME
+    # CSS masks using only the alpha channel, tinted with the theme color — so
+    # an opaque-canvas app icon shows as a solid filled square ("blank" icon).
+    # Swap in assets/dsh-icon-whale.png: a transparent-background whale glyph
+    # (alpha = the whale only) extracted from the original icon. It tints
+    # correctly on dark AND light themes. Re-extract if the extension's brand
+    # changes; keep the name stable so this line doesn't need updating.
+    && cp -f /tmp/dsh-icon-whale.png "$DSH_EXT/media/icon.png" \
+    && chown ${NB_USER}:${NB_GID} "$DSH_EXT/media/icon.png" \
+    && rm -f /tmp/dsh-icon-whale.png \
+    && echo "dsh-vscode extension: $(basename "$DSH_EXT")" \
+    && echo "dsh icon: $(wc -c < "$DSH_EXT/media/icon.png") bytes (monochrome whale glyph)"
 
 # Jupyter AI
 RUN uv pip install --system --no-cache \
