@@ -818,6 +818,39 @@ RUN python /tmp/dsh-web-tokenless.py \
     && grep -c "dsh-web-tokenless" /opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
 
 # ──────────────────────────────────────────────────────────────────────────
+# dsh web UI: make it work under a URL SUBPATH (divendb-only, build-time).
+# The `dsh --profile web` SPA is built to be served at the origin root (/).
+# In the divendb image it is reached ONLY through the JupyterHub + code-server
+# proxy path (…/vscode/proxy/3080/), so the browser — sitting at that subpath —
+# would resolve the main bundle, plugin scripts, API and WebSocket against the
+# site root → all 404 → blank page. (code-server's transparent proxy STRIPS the
+# /vscode/proxy/<port> prefix before forwarding to 127.0.0.1:3080, so the
+# server always sees root and is fine; the break is purely client-side URL
+# resolution.) The patch makes every client-side URL base-aware:
+#   · host-frontend-static: <base href="/"> -> "./", and /plugins/ -> ./plugins/
+#   · client-connection / api-gateway / client-ui-chat / session-log-export:
+#     base location.origin -> document.baseURI, and strip leading/trailing
+#     slashes so new URL("api/x", base) and ws://…/api/remote.mux land under
+#     the proxy prefix.
+# Works at origin root too (no prefix → baseURI = origin+"/"). Deterministic:
+# each replacement asserts its target appears exactly once, so a dsh version
+# bump that changes the source shape fails the build loudly.
+# ──────────────────────────────────────────────────────────────────────────
+COPY --chown=${NB_USER}:${NB_GID} dsh-web-subpath.py /tmp/dsh-web-subpath.py
+RUN python /tmp/dsh-web-subpath.py \
+    && rm -f /tmp/dsh-web-subpath.py \
+    && for f in \
+        dsh-host-frontend-static/lib/index.js \
+        dsh-client-connection/lib/client.js \
+        dsh-api-gateway/lib/client.js \
+        dsh-client-ui-chat/lib/client.js \
+        dsh-session-log-export/lib/client.js; do \
+        node --check /opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/$f \
+        || { echo "SYNTAX ERROR after subpath patch in $f"; exit 1; }; \
+      done \
+    && grep -rl "dsh-web-subpath" /opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai --include=*.js | wc -l
+
+# ──────────────────────────────────────────────────────────────────────────
 # NOTE: the jupyter-ai-dsh ACP *persona* was removed (0.2.49). dsh is now used
 # via the dsh-openai-shim proxy + the `Jager.dsh-vscode` code-server extension
 # (in-editor @dsh chat, installed in the code-server extensions block below),
