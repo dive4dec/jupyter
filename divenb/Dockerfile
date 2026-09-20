@@ -741,6 +741,15 @@ RUN uv pip install --system --no-cache \
     rm -rf /tmp/jupyter-ai-hermes /tmp/jupyter-hermes-proxy && \
     fix-permissions "${CONDA_DIR}"
 
+# Install jupyter-dsh-proxy (JupyterLab launcher tile for the dsh web UI) from
+# its build context. URL-mode proxy: it points at the dsh web server started by
+# the 41-dsh-web boot hook (shared with the VS Code extension instance). The
+# entry point is auto-discovered by jupyter-server-proxy — no extra config.
+COPY --from=jupyter-dsh-proxy --chown=${NB_USER}:${NB_GID} . /tmp/jupyter-dsh-proxy
+RUN uv pip install --system --no-cache /tmp/jupyter-dsh-proxy && \
+    rm -rf /tmp/jupyter-dsh-proxy && \
+    fix-permissions "${CONDA_DIR}"
+
 # Patch jupyter-ai-tools AFTER all installs (jupyter-ai-hermes reinstalls it).
 # _resolve_cell_id misidentifies numeric cell IDs as indices: JupyterLab 4+ YDoc
 # cell IDs can be short numeric strings (e.g. "22334524"). _is_index_like() returns

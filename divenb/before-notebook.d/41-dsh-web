@@ -1,0 +1,107 @@
+#!/bin/bash
+# dsh-web boot hook — start the dsh web UI server so the JupyterLab launcher
+# (jupyter-dsh-proxy) can reach it WITHOUT code-server / VS Code running first.
+#
+# Installed to /usr/local/bin/before-notebook.d/41-dsh-web (NO .sh extension)
+# and run by start.sh's run-hooks() right before the notebook is exec'd, as the
+# notebook user (jovyan). Lexicographic order (41 > 40) guarantees it runs
+# AFTER 40-dsh-proxy, so the 8090 OpenAI shim is already up: dsh web's LLM
+# calls route through DEEPSEEK_BASE_URL (http://127.0.0.1:8090/v1, set by the
+# spawner extraEnv and inherited by this child).
+#
+# CRITICAL: this file must NOT end in .sh. run-hooks() *sources* *.sh files but
+# *executes* other executable files. This hook calls `exit`, which — if sourced
+# — would terminate start.sh and kill the notebook boot. As a child process,
+# `exit` is safe. PATH already carries /opt/conda/bin (Dockerfile ENV PATH), so
+# `dsh` and `python3` are on PATH with no conda activation.
+#
+# Same "shared instance" contract as the VS Code path: the dsh-vscode extension
+# only auto-starts `dsh web` when nothing is already listening at its dsh.url
+# (default 127.0.0.1:3080). Since we own the port first, the extension sees the
+# server up and no-ops — one process, shared by the launcher AND the editor.
+#
+# Best-effort: never let this break the notebook boot.
+
+set +e
+
+export DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
+DSH_WEB_PORT_ENV="${DSH_WEB_PORT:-}"
+DEFAULT_PORT=3080
+PORT_FILE="${DSH_HOME}/web.port"
+
+# ── Resolve the port ──────────────────────────────────────────────────────────
+# Precedence: DSH_WEB_PORT env -> default 3080. (The boot hook OWNS the port,
+# so it does not read web.port — it writes it. The env var is the user's knob:
+# a literal number = that port; random/auto/0/empty = pick a free port.)
+case "$DSH_WEB_PORT_ENV" in
+    "" | "random" | "auto" | "0")
+        # Pick a free port. Bounded low range first (3081-3120, clear of the
+        # 8090 shim and the 3080 default) so the choice is predictable, then any
+        # free port as a fallback. python3 is on PATH (conda base).
+        PORT="$(python3 - <<'PY' 2>/dev/null
+import socket
+def free():
+    for p in list(range(3081, 3121)) + [0]:
+        with socket.socket() as s:
+            try:
+                s.bind(("127.0.0.1", p))
+                return s.getsockname()[1]
+            except OSError:
+                continue
+    return 0
+print(free())
+PY
+)"
+        ;;
+    *)
+        PORT="$DSH_WEB_PORT_ENV"
+        ;;
+esac
+
+# If python was unavailable, keep the deterministic default.
+case "$PORT" in
+    '' | *[!0-9]*) PORT="$DEFAULT_PORT" ;;
+esac
+PORT="${PORT:-$DEFAULT_PORT}"
+
+# Persist the resolved port for the launcher (jupyter-dsh-proxy reads it).
+# Single source of truth: whichever port we actually bound is what the proxy
+# points at, so the launcher and the server always agree.
+mkdir -p "$DSH_HOME" 2>/dev/null
+if ( : > "$PORT_FILE" ) 2>/dev/null; then
+    printf '%s\n' "$PORT" > "$PORT_FILE" 2>/dev/null
+    chmod 600 "$PORT_FILE" 2>/dev/null
+fi
+
+# `bash 41-dsh-web status` → report and exit (diagnostics).
+if [ "$1" = "status" ]; then
+    if command -v dsh >/dev/null 2>&1; then dsh web --help 2>&1 | head -1; fi
+    echo "port=${PORT} (env DSH_WEB_PORT=${DSH_WEB_PORT_ENV:-unset})"
+    exit 0
+fi
+
+if ! command -v dsh >/dev/null 2>&1; then
+    echo "[dsh-web] dsh not on PATH; skipping dsh web start" >&2
+    exit 0
+fi
+
+# Already listening on PORT? Do nothing (idempotent; e.g. a RESTARTABLE re-run
+# or the VS Code extension already owns it). A TCP connect succeeds iff dsh web
+# is bound and accepting — independent of HTTP status.
+if python3 - "$PORT" <<'PY' 2>/dev/null
+import socket, sys
+with socket.socket() as s:
+    s.settimeout(1)
+    sys.exit(0 if s.connect_ex(("127.0.0.1", int(sys.argv[1]))) == 0 else 1)
+PY
+then
+    echo "[dsh-web] dsh web already listening on ${PORT}; leaving it"
+    exit 0
+fi
+
+# Detach the server (setsid + nohup) so it survives the hook's parent being
+# exec'd into the notebook server; log to /tmp (ephemeral, never the home).
+# No --host: dsh web binds 127.0.0.1 by default (webStartup.host ?? '127.0.0.1').
+nohup setsid dsh web --port "$PORT" >/tmp/dsh-web.log 2>&1 &
+echo "[dsh-web] starting dsh web on ${PORT} (see /tmp/dsh-web.log)"
+exit 0
