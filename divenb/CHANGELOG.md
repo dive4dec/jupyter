@@ -1,5 +1,29 @@
 # devenb Changelog
 
+## 0.2.58 (2026-09-20)
+
+### Changed
+- **code-server 4.133.0 → 4.138.0.**
+- **Continue.continue extension removed** from the image (no longer installed).
+- **hermes-agent v2026.8.31 (0.21.0) → v2026.9.14 (0.21.3).** Upstream
+  refactored `acp_adapter`, so the three Dockerfile patches were re-validated
+  and re-ported against the 0.21.3 source (each is assertion/gate-guarded and
+  fails the build if an anchor drifts on a future bump):
+  - `tools/daemon_pool.py` 3.14 override regenerated from the 0.21.3 base — it
+    now preserves the new contextvar-propagating `submit()` (the
+    `UnscopedSecretError` fix under the multiplexed gateway) plus the 3.14
+    `_create_worker_context()` guard.
+  - ACP cancel sed reduced to the one still-relevant fix (the
+    `final_response=None` → `None.startswith()` crash); the "junk output after
+    cancel" bug was refactored upstream (block now uses a local `suppress` var,
+    import still in use).
+  - Turn-stall watchdog re-ported to the new structure: `SessionState`
+    activity fields, `SessionManager.all_states()`, and the streaming-callback
+    wrappers now target the per-turn `_TurnCallbacks` dataclass (`cbs.*`,
+    `stream_delta_cb`) instead of the old local callback vars.
+- **acp-client stays at 0.2.0** — already the latest published version on the
+  marketplace.
+
 ## 0.2.51 (2026-09-18)
 
 ### Added

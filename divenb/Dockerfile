@@ -112,7 +112,7 @@ RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor 
 
 # code-server
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.133.0 && \
+    sh /tmp/install.sh --version 4.138.0 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -523,22 +523,18 @@ USER root
 # where both JupyterLab and code-server can find it.
 
 # Clone hermes-agent, build dashboard web_dist, and pip install into conda
-RUN git clone --depth 1 --branch v2026.8.31 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
+RUN git clone --depth 1 --branch v2026.9.14 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
     # hermes requires setuptools>=77 for SPDX license expression
     uv pip install --system --no-cache 'setuptools>=77' && \
-    # Patch: fix two ACP cancel (stop button) bugs (still present in v2026.8.31)
-    # Bug 1: None.startswith() crash — when interrupted mid-tool-loop,
-    #   run_conversation returns final_response=None; .get("final_response", "")
-    #   returns None (key exists), then None.startswith() raises AttributeError
-    #   → "Internal error" → stop button shows error.
-    # Bug 2: Junk output after cancel — when interrupted during API streaming,
-    #   partial LLM text is sent to client as a complete message; only the
-    #   "Operation interrupted:" prefix was suppressed, not partial responses.
+    # Patch: fix the ACP cancel (stop button) None-crash (still present in v2026.9.14).
+    # When interrupted mid-tool-loop, run_conversation returns final_response=None;
+    # .get("final_response", "") returns None (key exists, default ignored), then
+    # None.startswith() raises AttributeError → "Internal error" → stop button errors.
+    # (The old "junk output after cancel" bug 2 was refactored upstream in 0.21.x: the
+    #  block now uses a local `suppress` var and the INTERRUPT_WAITING_FOR_MODEL_PREFIX
+    #  import is still in use — so that sed no longer applies. Re-verify this sed after
+    #  the next hermes bump: it must match exactly once.)
     sed -i 's/final_response = result.get("final_response", "")/final_response = result.get("final_response") or ""/' \
-        /tmp/hermes-agent/acp_adapter/server.py && \
-    sed -i '/suppress_interrupt_response = interrupted and final_response.startswith(/,/)/{s/suppress_interrupt_response = interrupted and final_response.startswith(/suppress_interrupt_response = interrupted  # cancelled or interrupted/;s/            INTERRUPT_WAITING_FOR_MODEL_PREFIX//;s/        )//;}' \
-        /tmp/hermes-agent/acp_adapter/server.py && \
-    sed -i '/from agent.conversation_loop import INTERRUPT_WAITING_FOR_MODEL_PREFIX/d' \
         /tmp/hermes-agent/acp_adapter/server.py && \
     # Build the dashboard web UI (required for jupyter-hermes-proxy)
     cd /tmp/hermes-agent/web && \
@@ -673,7 +669,6 @@ RUN chmod a+rx /usr/local/bin/install-vscode-extension
 
 # Code-server extensions (via install-vscode-extension for versioned downloads)
 RUN for ext in \
-    Continue.continue@2.1.0 \
     formulahendry.acp-client@0.2.0 \
     ; do \
     install-vscode-extension "$ext" --extensions-dir /usr/lib/code-server/lib/vscode/extensions; \

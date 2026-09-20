@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 """Idempotent, assertion-guarded patch for the ACP stuck-turn watchdog.
 
-Applied to the *installed* hermes-agent (cloned from v2026.8.31 at build).
+Applied to the *installed* hermes-agent (cloned from v2026.9.14 at build).
 Fixes the `%%hermes` "Redirected the active turn with your correction." failure:
 a turn that wedges (hung LLM stream / stuck approval) never clears
-state.is_running, so every later prompt is swallowed into a redirect and
-answered with nothing. We add a server-side watchdog that hard-interrupts a
-session idle past HERMES_ACP_TURN_STALL_TIMEOUT seconds, reusing the existing
-cancel() interrupt path (cancel_event + request_hard_interrupt).
+state.is_running, so every later prompt is absorbed into the active turn (or
+queued behind it) and answered with nothing. We add a server-side watchdog that
+hard-interrupts a session idle past HERMES_ACP_TURN_STALL_TIMEOUT seconds,
+reusing the existing cancel() interrupt path (cancel_event +
+request_hard_interrupt).
+
+Re-ported for the v2026.9.14 (0.21.3) acp_adapter refactor: the streaming
+callbacks now live on a per-turn `_TurnCallbacks` dataclass (cbs.*) instead of
+local vars, the streaming callback is `stream_delta_cb`, and the turn-start /
+turn-finished / except blocks were restructured. Anchors below match the 0.21.3
+source exactly; patch_once fails the build if any anchor stops matching exactly
+once, i.e. on the next hermes bump this must be re-reviewed.
 
 Usage: patch_acp_adapter.py <site-packages-dir>
 Files patched: <sp>/acp_adapter/session.py, <sp>/acp_adapter/server.py
@@ -58,19 +66,17 @@ def patch_once(path, replacements, marker_note):
 # Add activity-tracking fields to SessionState + SessionManager.all_states().
 sess_repl = [
     (
-        """    is_running: bool = False
-    queued_prompts: List[str] = field(default_factory=list)
-    runtime_lock: Any = field(default_factory=Lock)
-    current_prompt_text: str = ""
-    interrupted_prompt_text: str = ""
+        """    interrupted_prompt_text: str = ""
+    # Per-session allocator for ACP assistant messageIds (lazily created by
+    # the server so streamed chunks group into distinct assistant replies).
+    message_ids: Any = None
 """,
-        """    is_running: bool = False
-    queued_prompts: List[str] = field(default_factory=list)
-    runtime_lock: Any = field(default_factory=Lock)
-    current_prompt_text: str = ""
-    interrupted_prompt_text: str = ""
+        """    interrupted_prompt_text: str = ""
+    # Per-session allocator for ACP assistant messageIds (lazily created by
+    # the server so streamed chunks group into distinct assistant replies).
+    message_ids: Any = None
     # WATCHDOG_MARKER_HERMES_WD — turn-stall watchdog bookkeeping.
-    # last_activity: monotonic-ish wall clock (time.time) of the most recent
+    # last_activity: wall clock (time.time) of the most recent
     #   client-visible activity (streamed text, reasoning, tool start/progress,
     #   step, permission prompt). Refreshed by thin wrappers around the existing
     #   callbacks in server.py. turn_started: when the current turn began.
@@ -87,7 +93,7 @@ sess_repl = [
 
         Returns a shallow copy of the value list; each SessionState is the live
         object, so callers must treat is_running/last_activity as a momentary
-        read. The watchdog holds no lock while inspecting them — is_running is
+        read. The watchdog holds no lock while inspecting them - is_running is
         set/cleared under each state's runtime_lock, and a stale read here can
         only cause at most one extra (no-op) interrupt attempt.
         \"\"\"
@@ -99,31 +105,21 @@ sess_repl = [
 ]
 
 # ─────────────────────────── server.py ───────────────────────────
-# (1) imports  (2) __init__  (3) on_connect  (4) watchdog methods
-# (5) turn-start activity  (6) callback wrappers  (7) clear activity on end
+# (1) imports  (2) __init__  (3) on_connect + watchdog methods
+# (4) turn-start activity in _claim_turn_or_queue
+# (5) callback wrappers (on the _TurnCallbacks dataclass)
+# (6) cancel-clear activity in prompt()
+# (7) turn-finished in _finish_turn  (8) exception path in prompt()
 srv_repl = [
     (
-        """import asyncio
-from datetime import datetime, timezone
-import base64
-import contextvars
-import json
-import logging
-import os
+        """import os
+import threading
 from collections import defaultdict, deque
-from concurrent.futures import ThreadPoolExecutor
 """,
-        """import asyncio
-from datetime import datetime, timezone
-import base64
-import contextvars
-import json
-import logging
-import os
+        """import os
 import threading
 import time
 from collections import defaultdict, deque
-from concurrent.futures import ThreadPoolExecutor
 """,
     ),
     (
@@ -220,52 +216,45 @@ from concurrent.futures import ThreadPoolExecutor
 """,
     ),
     (
-        """            else:
-                state.is_running = True
+        """                state.is_running = True
                 state.current_prompt_text = user_text or "[Image attachment]"
+                return None
 """,
-        """            else:
-                state.is_running = True
+        """                state.is_running = True
                 state.current_prompt_text = user_text or "[Image attachment]"
                 # WATCHDOG_MARKER_HERMES_WD — start the stall clock for this turn.
                 state.turn_started = time.time()
                 state.last_activity = time.time()
+                return None
 """,
     ),
     (
-        """            approval_cb = make_approval_callback(conn.request_permission, loop, session_id)
+        """        agent = state.agent
+        agent.tool_progress_callback = cbs.tool_progress_cb
 """,
-        """            approval_cb = make_approval_callback(conn.request_permission, loop, session_id)
+        """        # WATCHDOG_MARKER_HERMES_WD — thin wrappers that refresh the
+        # session's last_activity, so any client-visible activity resets the
+        # stall timer. The original callbacks still run; we only timestamp
+        # around them. No-ops when a callback is None (never invoked then).
+        def _act() -> None:
+            state.last_activity = time.time()
 
-            # WATCHDOG_MARKER_HERMES_WD — thin wrappers that refresh the
-            # session's last_activity, so any client-visible activity resets the
-            # stall timer. The original callbacks still run; we only timestamp
-            # around them. (No-ops if the session somehow isn't tracked.)
-            def _act() -> None:
-                state.last_activity = time.time()
+        for _attr in ("tool_progress_cb", "reasoning_cb", "step_cb",
+                      "stream_delta_cb", "approval_cb"):
+            _raw = getattr(cbs, _attr, None)
+            if _raw is None:
+                continue
 
-            _raw_tool_progress_cb = tool_progress_cb
-            _raw_reasoning_cb = reasoning_cb
-            _raw_step_cb = step_cb
-            _raw_message_cb = message_cb
-            _raw_approval_cb = approval_cb
+            def _make_wrapper(_raw=_raw):
+                def _wrapped(*a, **k):
+                    _act()
+                    return _raw(*a, **k)
+                return _wrapped
 
-            def _wrapped_tool_progress_cb(*a, **k):
-                _act(); return _raw_tool_progress_cb(*a, **k)
-            def _wrapped_reasoning_cb(*a, **k):
-                _act(); return _raw_reasoning_cb(*a, **k)
-            def _wrapped_step_cb(*a, **k):
-                _act(); return _raw_step_cb(*a, **k)
-            def _wrapped_message_cb(*a, **k):
-                _act(); return _raw_message_cb(*a, **k)
-            def _wrapped_approval_cb(*a, **k):
-                _act(); return _raw_approval_cb(*a, **k)
+            setattr(cbs, _attr, _make_wrapper())
 
-            tool_progress_cb = _wrapped_tool_progress_cb
-            reasoning_cb = _wrapped_reasoning_cb
-            step_cb = _wrapped_step_cb
-            message_cb = _wrapped_message_cb
-            approval_cb = _wrapped_approval_cb
+        agent = state.agent
+        agent.tool_progress_callback = cbs.tool_progress_cb
 """,
     ),
     (
@@ -284,22 +273,14 @@ from concurrent.futures import ThreadPoolExecutor
         """        with state.runtime_lock:
             state.is_running = False
             state.current_prompt_text = ""
-
         while True:
-            with state.runtime_lock:
-                if not state.queued_prompts:
-                    break
 """,
         """        with state.runtime_lock:
             state.is_running = False
             state.current_prompt_text = ""
             # WATCHDOG_MARKER_HERMES_WD — turn finished; stop the stall clock.
             state.turn_started = 0.0
-
         while True:
-            with state.runtime_lock:
-                if not state.queued_prompts:
-                    break
 """,
     ),
     (
