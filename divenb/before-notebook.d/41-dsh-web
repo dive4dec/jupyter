@@ -30,11 +30,21 @@ DEFAULT_PORT=3080
 PORT_FILE="${DSH_HOME}/web.port"
 
 # ── Resolve the port ──────────────────────────────────────────────────────────
-# Precedence: DSH_WEB_PORT env -> default 3080. (The boot hook OWNS the port,
-# so it does not read web.port — it writes it. The env var is the user's knob:
-# a literal number = that port; random/auto/0/empty = pick a free port.)
+# Precedence: DSH_WEB_PORT env -> default 3080. The boot hook OWNS the port and
+# writes web.port; it does not read it. The user's knob (DSH_WEB_PORT):
+#   - UNSET (""/empty)        -> DEFAULT_PORT (3080). THIS IS THE IMPORTANT CASE:
+#     the dsh-vscode extension also defaults to 127.0.0.1:3080 and only starts
+#     `dsh web` when nothing is listening. By owning 3080 ourselves, the
+#     extension's ensure() sees it up and NO-OPS -> one shared instance.
+#   - a literal number        -> that port (non-default; launcher + hook agree
+#     via web.port; see README on the VS Code pairing caveat).
+#   - random / auto / 0       -> pick a free port (JupyterLab-launcher-only use
+#     case where you want to avoid the shared 3080).
 case "$DSH_WEB_PORT_ENV" in
-    "" | "random" | "auto" | "0")
+    "")
+        PORT="$DEFAULT_PORT"
+        ;;
+    "random" | "auto" | "0")
         # Pick a free port. Bounded low range first (3081-3120, clear of the
         # 8090 shim and the 3080 default) so the choice is predictable, then any
         # free port as a fallback. python3 is on PATH (conda base).
