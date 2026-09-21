@@ -1,5 +1,85 @@
 # devenb Changelog
 
+## 0.2.62 (2026-09-21)
+
+### Fixed
+- **dsh-openai-shim: context-window-aware `max_tokens` (fixes the sglang/vLLM
+  "context length" 400).** 0.2.61's per-provider `token_cap` clamped the
+  *output* limit, but sglang/vLLM report `max_model_len` as the *total* context
+  window (input + output), so a large prompt + large `max_tokens` still overflowed
+  and 400'd. The shim (now `dsh-openai-shim` 0.2.0) stores both `token_cap` and
+  `context_window`, clamps `max_tokens = min(cap, window − est_input − 128)`,
+  and self-heals a remaining context-window 400 by retrying once with the
+  server-reported input count and persisting the window.
+- **Build gate** updated for the 4-tuple `resolve_upstream` (now also returns the
+  context window).
+
+### Changed
+- Bumped `divenb` version to `0.2.62`.
+
+## 0.2.61 (2026-09-21)
+
+### Added
+- **dsh-openai-shim: per-provider completion-token cap, auto-discovered.**
+  `dsh-proxy use --base` probes `/v1/models` to learn the upstream's output limit
+  and stores it as the provider's `token_cap`; the shim clamps `max_tokens` to it
+  and self-heals a completion-cap 400 (parses the server-reported cap, retries,
+  persists). `dsh-proxy use` now restarts the shim after changing providers
+  (was stop-only, leaving a dead endpoint).
+
+### Changed
+- **Deployment-agnostic build gate wired into the Dockerfile**
+  (`dsh_shim_deployment_agnostic_gate.py`): fails the build if a deployment host
+  or the old hardcoded provider catalog reappears in the package, and
+  functionally verifies file-based (env-inert) resolution + the
+  sync-never-clobbers contract. Re-run after any dsh-openai-shim refactor.
+- **`before-notebook.d/40-dsh-proxy` runs `dsh-proxy sync` before daemon start.**
+  Upserts the deployment's `diveai`/`litellm` entries from the pod
+  `DIVEAI_*`/`LITELLM_*` env into `~/.dsh/proxy.conf` on every start (key
+  rotation + endpoint moves propagate without a rebuild; student-added providers
+  untouched; first-run default `litellm`). Best-effort — a sync failure never
+  blocks notebook boot.
+
+## 0.2.60 (2026-09-21)
+
+### Changed
+- **dsh providers now live in `~/.dsh/proxy.conf` (hermes-style sync).**
+  proxy.conf is the SINGLE source of truth for ALL providers — the
+  deployment's (`diveai` / `litellm`) and any number of student-added custom
+  ones. The 0.2.59 `DSH_PROXY_<NAME>_BASE/_KEY` pod env vars are gone; the
+  shim resolves providers purely from the file (verified env-inert by the
+  build-time gate).
+  - **Sync on every notebook start** (before-notebook.d hook + jupyter
+    server config): `dsh-proxy sync` upserts the `diveai` / `litellm` entries
+    from the spawner's `DIVEAI_*` / `LITELLM_*` env — key rotation and
+    endpoint moves propagate without a rebuild, student-added entries are
+    never touched, and the first-run default (`litellm`) is set once. The
+    shim restarts only when something actually changed (or is down).
+  - The hub `pre_spawn_hook` no longer maps `DIVEAI_*/LITELLM_*` onto
+    `DSH_PROXY_*`; the values file (`DIVEAI_API_BASE/_KEY`,
+    `LITELLM_API_BASE`) stays the single endpoint/key source for both hermes
+    and dsh.
+- **`dsh-proxy use` accepts ANY provider name.**
+  `dsh-proxy use myprovider --base https://host/v1 --key sk-...` adds a
+  custom provider of any name (multiple allowed) and switches to it; a bare
+  `dsh-proxy use <name>` switches to an existing one; omitting `--key`
+  forwards the caller's Authorization as-is. New `dsh-proxy list` shows all
+  configured providers with the current one flagged.
+- **Build-time gate rewritten** for the file-based contract: no deployment
+  hosts in the package, resolution is env-inert, and `sync_deployment`
+  must upsert + set first-run default without clobbering student entries.
+
+## 0.2.59 (2026-09-21)
+
+### Changed
+- **dsh-openai-shim made deployment-agnostic (superseded by 0.2.60's
+  file-based sync, kept for history).** No hardcoded provider endpoints /
+  URLs in the package; a named provider resolved from
+  `DSH_PROXY_<NAME>_BASE/_KEY` pod env; the hub `pre_spawn_hook` mapped
+  `DIVEAI_*/LITELLM_*` onto `DSH_PROXY_*`; `dsh-proxy use <name>` accepted
+  any deployment-defined name and failed fast with the exact env var to
+  define; build-time gate added.
+
 ## 0.2.58 (2026-09-20)
 
 ### Changed

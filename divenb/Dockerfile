@@ -816,6 +816,17 @@ RUN echo "dsh CLI:  $(command -v dsh || echo 'MISSING — check PATH') v$(dsh --
     && echo "dsh web: $(dsh web --help 2>&1 | head -1)" \
     && echo "pnpm:   $(pnpm --version 2>/dev/null || echo 'MISSING')" \
     && echo "shim:   $(command -v dsh-openai-shim || echo 'MISSING')"
+# GATE: the shim must stay deployment-agnostic — NO hardcoded provider
+# endpoints/URLs in the package. All providers (deployment + student custom)
+# live in the student's ~/.dsh/proxy.conf; the deployment refreshes its own
+# entries there via `dsh-proxy sync` (in-pod, from the DIVEAI_* / LITELLM_*
+# spawner env). Fails the build if a deployment host or the old hardcoded
+# catalog constants reappear, and functionally verifies file-based
+# (env-inert) resolution + the sync-never-clobbers contract.
+# Re-verify this gate after any dsh-openai-shim refactor.
+COPY --chown=${NB_USER}:${NB_GID} dsh_shim_deployment_agnostic_gate.py /tmp/dsh-shim-gate.py
+RUN PYTHONDONTWRITEBYTECODE=1 python3 /tmp/dsh-shim-gate.py \
+    && rm -f /tmp/dsh-shim-gate.py
 
 # ──────────────────────────────────────────────────────────────────────────
 # dsh web UI: DISABLE the launch-token/cookie requirement (divendb-only).

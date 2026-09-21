@@ -17,10 +17,14 @@
 # the daemon is detached.
 #
 # The proxy is the intended way to drive dsh (terminal / code-server / VS Code
-# point dsh at this loopback endpoint). Provider selection (diveai | litellm |
-# custom) comes from ~/.dsh/proxy.conf — written on first run with the default
-# (LiteLLM; DiveAI 404s on /chat/completions so it is not a valid default) and
-# never clobbered when a student has chosen another.
+# point dsh at this loopback endpoint). ALL providers — the deployment's
+# (diveai / litellm) and any the student adds — live in ~/.dsh/proxy.conf.
+# Before starting the daemon this hook runs `dsh-proxy sync`, which upserts
+# the deployment's entries from the pod env (DIVEAI_* / LITELLM_* — hermes
+# style: refresh on every start, first-run default litellm, student-added
+# providers untouched) and writes it. This guarantees the daemon ALWAYS starts
+# with a resolvable provider, on a first-run pod too (no race with the
+# notebook-server config sync, which still runs later for key rotation).
 #
 # Layering (mirrors the dsh runtime): the shim process runs from the conda env
 # (ephemeral image layer) and logs to /tmp (ephemeral). It never writes to the
@@ -100,6 +104,19 @@ fi
 if [ "$1" = "status" ]; then
     dsh-proxy status
     exit $?
+fi
+
+# Sync the deployment's providers into ~/.dsh/proxy.conf from the pod env
+# (diveai / litellm from DIVEAI_* / LITELLM_*). Idempotent; never touches
+# student-added providers; sets the default (litellm) on first run only.
+# Runs as the notebook user, whose env is the spawner environment — same
+# variables the hermes config sync consumes. Best-effort: a failure here must
+# not block notebook boot (the daemon then just starts with whatever
+# proxy.conf already holds).
+if dsh-proxy sync --default-provider litellm >/tmp/dsh-proxy-sync.log 2>&1; then
+    echo "[dsh-proxy] sync ok ($(tail -n1 /tmp/dsh-proxy-sync.log 2>/dev/null))"
+else
+    echo "[dsh-proxy] WARNING: sync failed; starting daemon with existing proxy.conf" >&2
 fi
 
 # Already up? Do nothing (e.g. RESTARTABLE re-runs the hook). Branch on the
