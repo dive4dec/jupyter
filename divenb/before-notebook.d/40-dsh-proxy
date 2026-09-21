@@ -17,14 +17,15 @@
 # the daemon is detached.
 #
 # The proxy is the intended way to drive dsh (terminal / code-server / VS Code
-# point dsh at this loopback endpoint). ALL providers — the deployment's
-# (diveai / litellm) and any the student adds — live in ~/.dsh/proxy.conf.
-# Before starting the daemon this hook runs `dsh-proxy sync`, which upserts
-# the deployment's entries from the pod env (DIVEAI_* / LITELLM_* — hermes
-# style: refresh on every start, first-run default litellm, student-added
-# providers untouched) and writes it. This guarantees the daemon ALWAYS starts
-# with a resolvable provider, on a first-run pod too (no race with the
-# notebook-server config sync, which still runs later for key rotation).
+# point dsh at this loopback endpoint). ALL providers — the deployment's and
+# any the student adds — live in ~/.dsh/proxy.conf. This hook runs the single
+# startup orchestrator `dsh-proxy ensure`, which upserts the deployment's
+# entries from the pod env (DIVEAI_* / LITELLM_* — hermes style: refresh on
+# every start, student-added providers untouched) and then starts or restarts
+# the daemon as needed. This is the ONLY place that logic lives — the hub
+# values files no longer carry a copy. This hook hardcodes NO provider: the
+# first-run default is deployment policy, read by the CLI from the
+# DSH_PROXY_DEFAULT_PROVIDER pod env (unset → nothing forced).
 #
 # Layering (mirrors the dsh runtime): the shim process runs from the conda env
 # (ephemeral image layer) and logs to /tmp (ephemeral). It never writes to the
@@ -40,60 +41,17 @@ set +e
 export DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 export DSH_SHIM_PORT="${DSH_SHIM_PORT:-8090}"
 
-# ── Seed the default model (hermes-style: default-on-first-run, never clobbered) ──
+# ── Seed the default dsh model (hermes-style: default-on-first-run, never clobber) ──
 #
 # $HOME is the NFS mountpoint, so the image's /home/jovyan is fully shadowed —
-# we cannot "bake" the default into the home. Instead, on FIRST boot (when the
-# user's NFS home has no dsh config yet) we write ~/.dsh/settings.yaml with a
-# sane default: provider=deepseek-official routed at our :8090 shim (via the
-# DEEPSEEK_BASE_URL the spawner sets), model=Socrates (the only model the
-# per-user LiteLLM key is allowed). This is the same "seed once, don't clobber"
-# contract as the proxy.conf block in dsh-proxy init: we only write when the
-# file is ABSENT, so a student who later edits it (to switch model, or to add
-# models) keeps their choice.
-#
-# settings.yaml is read by BOTH launch paths — the dsh web server the VS Code
-# extension drives, and `dsh` run directly in a terminal — so the default is
-# consistent everywhere. The dsh-settings-file plugin hot-published this on
-# write (verified: the running web process picked up the change without a
-# restart).
-#
-# Only seed agent-default-model + a minimal catalog. We deliberately do NOT
-# try to discover the upstream's real model list here (it would need the
-# per-user key); the default works out-of-the-box because the shim routes
-# Socrates regardless of catalog, and a catalog override here would otherwise
-# risk hiding models a future key does allow. Students can extend the catalog
-# under `llm-deepseek.models` in the same file.
-SETTINGS="${DSH_HOME}/settings.yaml"
-if [ ! -e "$SETTINGS" ]; then
-    mkdir -p "$DSH_HOME" 2>/dev/null
-    if ( : > "$SETTINGS" ) 2>/dev/null; then
-        cat > "$SETTINGS" 2>/dev/null <<'DSEOF'
-# dsh default model — seeded on first boot; edit freely (persists on NFS).
-# Both the in-editor @dsh chat and `dsh` run in a terminal read this file.
-#
-# agent-default-model = the model used when nothing else is chosen.
-#   provider must be "deepseek-official"; it is routed at the in-pod shim
-#   (DEEPSEEK_BASE_URL) regardless of the name.
-#   To use a different model, change `model:` below, or pick one in the chat.
-#
-# llm-deepseek.models = the model picker's list. Socrates is the only model
-#   the per-user key can use right now; add more here as LiteLLM exposes them.
-agent-default-model:
-  provider: deepseek-official
-  model: Socrates
-  reasoningEffort: high
-llm-deepseek:
-  models:
-    - id: Socrates
-      name: Socrates
-      contextWindow: 262144
-      inputModalities: [text]
-DSEOF
-        chmod 600 "$SETTINGS" 2>/dev/null
-        echo "[dsh-proxy] seeded default dsh model (Socrates) at $SETTINGS"
-    fi
-fi
+# we cannot "bake" the default model into the home. On first boot the shim CLI
+# writes ~/.dsh/settings.yaml, but it DISCOVERS both the model name and the
+# context window from the endpoint's /v1/models (the same way hermes does) —
+# this image bakes NO model name and NO contextWindow. The deployment policy
+# (which model) is the DSH_DEFAULT_MODEL pod env; unset → the first model the
+# endpoint advertises. It runs AFTER `dsh-proxy ensure` below so proxy.conf
+# holds the deployment provider's base+key to query. Only written when the
+# file is absent, so a student who later edits it keeps their choice.
 
 if ! command -v dsh-proxy >/dev/null 2>&1; then
     echo "[dsh-proxy] dsh-proxy not on PATH; skipping shim start" >&2
@@ -106,29 +64,35 @@ if [ "$1" = "status" ]; then
     exit $?
 fi
 
-# Sync the deployment's providers into ~/.dsh/proxy.conf from the pod env
-# (diveai / litellm from DIVEAI_* / LITELLM_*). Idempotent; never touches
-# student-added providers; sets the default (litellm) on first run only.
-# Runs as the notebook user, whose env is the spawner environment — same
-# variables the hermes config sync consumes. Best-effort: a failure here must
-# not block notebook boot (the daemon then just starts with whatever
-# proxy.conf already holds).
-if dsh-proxy sync --default-provider litellm >/tmp/dsh-proxy-sync.log 2>&1; then
-    echo "[dsh-proxy] sync ok ($(tail -n1 /tmp/dsh-proxy-sync.log 2>/dev/null))"
+# Single startup orchestrator: `dsh-proxy ensure` syncs the deployment's
+# providers into ~/.dsh/proxy.conf from the pod env (DIVEAI_* / LITELLM_* —
+# hermes-style: refresh on every start, never touch student-added providers),
+# then STARTS the daemon if it is down or RESTARTS it if the sync changed
+# anything. This is the ONLY place that logic lives: the hub values files no
+# longer carry a copy (that duplication is what let them drift), and this hook
+# does NOT hardcode any provider. Which provider a student gets on FIRST run
+# is deployment policy, read by the CLI from DSH_PROXY_DEFAULT_PROVIDER in the
+# pod env (unset → nothing forced; the student keeps/picks their own). Runs as
+# the notebook user, whose env is the spawner environment — the same variables
+# the hermes config sync consumes. Best-effort: a failure here must not block
+# notebook boot (the daemon then just starts with whatever proxy.conf holds).
+if dsh-proxy ensure >/tmp/dsh-proxy-ensure.log 2>&1; then
+    echo "[dsh-proxy] ensure ok ($(tail -n1 /tmp/dsh-proxy-ensure.log 2>/dev/null))"
 else
-    echo "[dsh-proxy] WARNING: sync failed; starting daemon with existing proxy.conf" >&2
+    echo "[dsh-proxy] WARNING: ensure failed; shim may be down (see /tmp/dsh-shim.log, /tmp/dsh-proxy-ensure.log)" >&2
 fi
 
-# Already up? Do nothing (e.g. RESTARTABLE re-runs the hook). Branch on the
-# exit code — 0 means running. (Do NOT grep the text: "not running" contains
-# the substring "running".)
-if dsh-proxy status >/dev/null 2>&1; then
-    echo "[dsh-proxy] shim already running on ${DSH_SHIM_PORT}; leaving it"
-    exit 0
+# Seed the default dsh model on FIRST boot only (settings.yaml absent). Runs
+# after ensure so it can discover the model name + context window from the
+# deployment provider's endpoint (base+key are in proxy.conf now). No model
+# name or contextWindow is baked into the image — the deployment policy model
+# is DSH_DEFAULT_MODEL (unset → first advertised model). No-op when the student
+# already has a settings.yaml. Best-effort: a failure must not block notebook
+# boot (dsh then just uses whatever it finds / the student picks a model).
+if dsh-proxy seed-settings >/tmp/dsh-proxy-seed.log 2>&1; then
+    tail -n1 /tmp/dsh-proxy-seed.log 2>/dev/null | grep -q "seeded" && \
+        echo "[dsh-proxy] $(tail -n1 /tmp/dsh-proxy-seed.log 2>/dev/null)"
+else
+    echo "[dsh-proxy] WARNING: seed-settings failed (see /tmp/dsh-proxy-seed.log)" >&2
 fi
-
-# Detach the daemon (setsid + nohup) so it survives the hook's parent being
-# exec'd into the notebook server; log to /tmp (ephemeral, never the home).
-nohup setsid dsh-proxy serve >/tmp/dsh-shim.log 2>&1 &
-echo "[dsh-proxy] starting shim on ${DSH_SHIM_PORT} (see /tmp/dsh-shim.log)"
 exit 0

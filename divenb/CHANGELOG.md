@@ -1,5 +1,60 @@
 # devenb Changelog
 
+## 0.2.63 (2026-09-22)
+
+### Changed
+- **dsh shim: single startup orchestrator, no hardcoded provider (dedup +
+  deployment-agnostic).** The shim's "sync providers + start/restart the daemon"
+  logic existed in TWO places — the image's `before-notebook.d` boot hook (bash)
+  AND every hub values file's mounted `jupyter_server_config` (a Python block).
+  That duplication is how the course hubs (cs1302a/cs2310) drifted from edbt:
+  they never got the 0.2.61 values-file copy and stayed on the 0.2.49 model.
+  - (a) NEW `dsh-proxy ensure` subcommand (shim) is now the ONLY place the
+      logic lives: it syncs the deployment's `DIVEAI_*`/`LITELLM_*` entries into
+      `~/.dsh/proxy.conf`, then STARTS the daemon if down or RESTARTS it if the
+      sync changed anything (unchanged + running → no-op). `dsh-proxy ensure`
+      is what the boot hook calls now.
+  - (b) The image's `40-dsh-proxy` hook's manual bash sync+start+status is gone —
+      replaced by a single `dsh-proxy ensure` call.
+  - (c) The duplicated Python sync block is REMOVED from the hub values files
+      (edbt.yaml; the course files never had it). Their `jupyter_server_config`
+      now carries only a pointer comment.
+
+### Fixed
+- **Removed the hardcoded `--default-provider litellm` from the image.** The
+  image is deployment-agnostic and may be deployed to clusters whose default
+  dsh provider is not litellm; baking one in was a fragile coupling. The
+  first-run default is now DEPLOYMENT POLICY: the shim's `ensure`/`sync` read it
+  from the `DSH_PROXY_DEFAULT_PROVIDER` pod env (unset → nothing forced, the
+  student keeps/picks their own). Each hub values file now declares its own
+  `DSH_PROXY_DEFAULT_PROVIDER` in `extraEnv` (edbt + cs1302a + cs2310 = `litellm`,
+  preserving prior behavior). A unit test (`test_ensure_no_hardcoded_default`)
+  locks in that the package forces no provider when the env is unset.
+- **Removed the hardcoded dsh model name (`Socrates`) and `contextWindow`
+  (262144) from the image.** The `40-dsh-proxy` boot hook used to bake a fixed
+  `~/.dsh/settings.yaml` (model `Socrates`, `contextWindow: 262144`) into the
+  first boot — the same fragile coupling as the provider, and both values are
+  discoverable. Now the hook calls a new `dsh-proxy seed-settings` which, on
+  first boot only, **discovers** the model name and its `contextWindow` from
+  the deployment provider's `/v1/models` (exactly how hermes discovers them).
+  The model is deployment policy — `DSH_DEFAULT_MODEL` in `extraEnv`
+  (edbt + cs1302a + cs2310 = `Socrates`, preserving prior behavior); unset →
+  the first model the endpoint advertises. The window is omitted rather than
+  fabricated when it can't be discovered (the shim self-heals it from the first
+  context-length 400). Seeded only when `settings.yaml` is absent, so a
+  student's edits survive (tests: `test_seed_*`, incl. a regression asserting
+  the package contains no baked model name or window).
+- Fixed stale comments that referenced a nonexistent in-pod `dsh-proxy-config.py`
+  ("mounted below, invoked from jupyter_server_config.py") and the outdated
+  0.2.49 "default DiveAI, student-overridable" model — the real mechanism is the
+  image boot hook + `dsh-proxy ensure` + `dsh-proxy seed-settings`.
+
+### Notes
+- Shim: `dsh-openai-shim` v0.2.0 → v0.2.1 (new `ensure` command + tests).
+- Behavior for the three current hubs is unchanged (litellm still the first-run
+  default) — it is now expressed in the values file instead of the image, so the
+  same image can serve a cluster with a different default.
+
 ## 0.2.62 (2026-09-21)
 
 ### Fixed
