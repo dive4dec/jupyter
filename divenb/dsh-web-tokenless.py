@@ -23,27 +23,58 @@ rather than silently shipping an unpatched/token-gated image.
 Re-run safety: if the file already carries the [dsh-web-tokenless] marker we
 exit 0 without touching it.
 """
+import glob
+import os
 import re
 import sys
+from typing import NoReturn
 
-TARGET = (
-    "/opt/conda/lib/node_modules/@deepseek-ai/dsh"
-    "/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js"
-)
+# @deepseek-ai/dsh-client-connection is a transitive dep of @deepseek-ai/dsh.
+# npm places it either HOISTED at ${DSH_ROOT}/node_modules/@deepseek-ai/ or
+# NESTED under .../dsh-web-app/node_modules/@deepseek-ai/, depending on which
+# @deepseek-ai/* family version the caret ranges resolve to (the layout changed
+# when the 0.1.5-rc.3 family was published, after 0.2.64 was first built). We
+# do NOT hardcode the layout: we resolve the real location at build time so the
+# patch is layout-agnostic and survives dsh version bumps.
+DSH_ROOT = "/opt/conda/lib/node_modules/@deepseek-ai/dsh"
+CLIENT_INDEX = "dsh-client-connection/lib/index.js"
 MARKER = "[dsh-web-tokenless]"
 
 
-def fail(msg: str) -> None:
+def fail(msg: str) -> NoReturn:
     sys.stderr.write("dsh-web-tokenless: FATAL: %s\n" % msg)
     sys.exit(1)
 
 
+def find_target():
+    """Locate dsh-client-connection/lib/index.js, layout-agnostic."""
+    candidates = [
+        os.path.join(DSH_ROOT, "node_modules/@deepseek-ai", CLIENT_INDEX),
+        os.path.join(
+            DSH_ROOT,
+            "node_modules/@deepseek-ai/dsh-web-app/node_modules/@deepseek-ai",
+            CLIENT_INDEX,
+        ),
+    ]
+    for cand in candidates:
+        if os.path.isfile(cand):
+            return cand
+    # Last resort: locate it anywhere under the dsh install tree.
+    hits = glob.glob(
+        os.path.join(DSH_ROOT, "node_modules", "**", CLIENT_INDEX), recursive=True
+    )
+    return sorted(hits)[0] if hits else None
+
+
 def main() -> None:
+    target = find_target()
+    if target is None:
+        fail("could not locate %s under %s (dsh layout changed?)" % (CLIENT_INDEX, DSH_ROOT))
     try:
-        with open(TARGET, "r", encoding="utf-8") as fh:
+        with open(target, "r", encoding="utf-8") as fh:
             src = fh.read()
     except OSError as exc:
-        fail("cannot read %s: %s" % (TARGET, exc))
+        fail("cannot read %s: %s" % (target, exc))
 
     if MARKER in src:
         print("dsh-web-tokenless: already patched, nothing to do.")
@@ -127,10 +158,10 @@ def main() -> None:
     if n != 1:
         fail("Patch C (authenticatedUrl) did not match — dsh source changed shape.")
 
-    with open(TARGET, "w", encoding="utf-8") as fh:
+    with open(target, "w", encoding="utf-8") as fh:
         fh.write(src)
 
-    print("dsh-web-tokenless: patched %s (isAuthenticated + requestRejection + authenticatedUrl)." % TARGET)
+    print("dsh-web-tokenless: patched %s (isAuthenticated + requestRejection + authenticatedUrl)." % target)
 
 
 if __name__ == "__main__":

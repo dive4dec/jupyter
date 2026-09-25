@@ -1,5 +1,37 @@
 # devenb Changelog
 
+## 0.2.67 (2026-09-25)
+
+### Changed
+- **dsh web patching is now layout-agnostic (no self-referential image pin).**
+  The 0.2.66 attempt stopped the npm caret-range float by `COPY --from`-ing the
+  whole `@deepseek-ai` tree out of the PRIOR `divenb:0.2.64` image. That was
+  rejected: it made the build self-referential (image N copies from tag N-1 of
+  the SAME image), hard-required that old tag stay pullable in every cluster's
+  registry, and committed the internal `registry.dive4dec.svc.cluster.local`
+  hostname into the public Dockerfile. This release reverts to a plain
+  `npm install -g '@deepseek-ai/dsh@0.1.5-rc.2'` and instead makes the two
+  build-time patchers find their target files wherever npm puts them:
+  - `dsh-web-tokenless.py` — `find_target()` tries the hoisted base
+    (`…/dsh/node_modules/@deepseek-ai/`), then the nested base
+    (`…/dsh-web-app/node_modules/@deepseek-ai/`), then a conservative
+    `glob` last-resort, and fails loudly if the file is truly absent.
+  - `dsh-web-subpath.py` — `_resolve_base()` picks the first candidate base
+    where ALL five target files exist (else locates each by glob and fails on
+    missing/mixed — never a silent half-patch).
+  - Both Dockerfile verification gates now resolve paths via
+    `find "$DSH_BASE" -path '…'` instead of a hardcoded hoisted path.
+  Layout is set by what the caret ranges resolve to at install time (a fresh
+  top-level `dsh@0.1.5-rc.2` install today resolves the rc.3 family and nests
+  `@deepseek-ai/*`); both the fresh nested install and the 0.2.64 hoisted tree
+  were verified against the real scripts + exact gate commands before the build.
+- **CERN ROOT rebuilt against C++23** (`root_cxx_standard=23` next to
+  `root=6.40.*`), carried over from the 0.2.65 work. The root mamba install
+  runs inside a bounded retry loop (`timeout -k 60 900 …`, up to 5 attempts)
+  because `mamba --quiet` has no read timeout and a fresh cxx23 `root_base`
+  download (not in the layer cache, 0.2.64 baked cxx20) can wedge on a
+  half-open conda-CDN connection.
+
 ## 0.2.63 (2026-09-22)
 
 ### Changed

@@ -40,14 +40,58 @@ Deterministic: each replacement asserts its target appears exactly once; a dsh
 version bump that changes the source shape fails the build loudly. Idempotent
 via the end-of-file marker comment.
 """
+import glob
 import os, sys
 
-BASE = "/opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai"
+# The 5 @deepseek-ai/* packages below are a transitive dep tree of
+# @deepseek-ai/dsh. npm places them either HOISTED at
+# ${DSH}/node_modules/@deepseek-ai (the 0.2.64-era layout) or NESTED under
+# ${DSH}/node_modules/@deepseek-ai/dsh-web-app/node_modules/@deepseek-ai (the
+# layout the 0.1.5-rc.3 family resolves to after 0.2.64 was first built). We
+# do NOT hardcode the layout: resolve the base dir where ALL five target files
+# actually exist, so the patch is layout-agnostic and survives dsh bumps.
+DSH = "/opt/conda/lib/node_modules/@deepseek-ai/dsh"
 MARKER = "[dsh-web-subpath]"
+_PKG_FILES = [
+    "dsh-client-connection/lib/client.js",
+    "dsh-host-frontend-static/lib/index.js",
+    "dsh-api-gateway/lib/client.js",
+    "dsh-client-ui-chat/lib/client.js",
+    "dsh-session-log-export/lib/client.js",
+]
+_BASE_CANDIDATES = [
+    DSH + "/node_modules/@deepseek-ai",
+    DSH + "/node_modules/@deepseek-ai/dsh-web-app/node_modules/@deepseek-ai",
+]
+
 
 def fail(msg):
     sys.stderr.write("FATAL: %s\n" % msg)
     sys.exit(1)
+
+
+def _resolve_base():
+    for base in _BASE_CANDIDATES:
+        if all(os.path.isfile(os.path.join(base, f)) for f in _PKG_FILES):
+            return base
+    # Last resort: locate each file anywhere under the dsh tree; require all 5.
+    found = {}
+    for f in _PKG_FILES:
+        hits = glob.glob(DSH + "/node_modules/**/@deepseek-ai/" + f, recursive=True)
+        if not hits:
+            fail("dsh-web-subpath: cannot find %s under %s (dsh layout changed?)"
+                 % (f, DSH))
+        found[f] = sorted(hits)[0]
+    # If all are found in one directory, use it; else fail (mixed layout is
+    # not expected).
+    dirs = {os.path.dirname(os.path.dirname(found[f])) for f in _PKG_FILES}
+    if len(dirs) == 1:
+        return dirs.pop()
+    fail("dsh-web-subpath: target files span multiple dirs %s — layout changed"
+         % sorted(dirs))
+
+
+BASE = _resolve_base()
 
 def patch_file(path, patches):
     if not os.path.exists(path):

@@ -844,7 +844,9 @@ RUN PYTHONDONTWRITEBYTECODE=1 python3 /tmp/dsh-shim-gate.py \
 COPY --chown=${NB_USER}:${NB_GID} dsh-web-tokenless.py /tmp/dsh-web-tokenless.py
 RUN python /tmp/dsh-web-tokenless.py \
     && rm -f /tmp/dsh-web-tokenless.py \
-    && grep -c "dsh-web-tokenless" /opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
+    && [ "$(find /opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules \
+              -path '*dsh-client-connection/lib/index.js' \
+              -exec grep -l 'dsh-web-tokenless' {} + 2>/dev/null | wc -l)" -ge 1 ]
 
 # ──────────────────────────────────────────────────────────────────────────
 # dsh web UI: make it work under a URL SUBPATH (divendb-only, build-time).
@@ -866,7 +868,8 @@ RUN python /tmp/dsh-web-tokenless.py \
 # bump that changes the source shape fails the build loudly.
 # ──────────────────────────────────────────────────────────────────────────
 COPY --chown=${NB_USER}:${NB_GID} dsh-web-subpath.py /tmp/dsh-web-subpath.py
-RUN python /tmp/dsh-web-subpath.py \
+RUN DSH_BASE=/opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules \
+    && python /tmp/dsh-web-subpath.py \
     && rm -f /tmp/dsh-web-subpath.py \
     && for f in \
         dsh-host-frontend-static/lib/index.js \
@@ -874,10 +877,12 @@ RUN python /tmp/dsh-web-subpath.py \
         dsh-api-gateway/lib/client.js \
         dsh-client-ui-chat/lib/client.js \
         dsh-session-log-export/lib/client.js; do \
-        node --check /opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/$f \
-        || { echo "SYNTAX ERROR after subpath patch in $f"; exit 1; }; \
+        [ -n "$(find "$DSH_BASE" -path "*@deepseek-ai/$f" -type f | head -1)" ] \
+          || { echo "dsh-web-subpath: cannot find $f under $DSH_BASE"; exit 1; } && \
+        find "$DSH_BASE" -path "*@deepseek-ai/$f" -type f -exec node --check {} \; \
+          || { echo "SYNTAX ERROR after subpath patch in $f"; exit 1; }; \
       done \
-    && grep -rl "dsh-web-subpath" /opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai --include=*.js | wc -l
+    && [ "$(grep -rl 'dsh-web-subpath' "$DSH_BASE" --include=*.js | wc -l)" -ge 1 ]
 
 # ──────────────────────────────────────────────────────────────────────────
 # NOTE: the jupyter-ai-dsh ACP *persona* was removed (0.2.49). dsh is now used
@@ -926,11 +931,14 @@ RUN printf 'hatchling<=1.32.1\n' > /tmp/hatchling-build-constraints.txt && \
     'kaleido==0.2.*' \
     'jupyterlab-execute-time==3.3.*' \
     && \
-    mamba install --quiet --yes \
-    'xeus-cpp=0.10.*' \
-    'xtensor=0.9.*' \
-    'root=6.40.*' \
-    'gxx_linux-64' \
+    i=0 && until timeout -k 60 900 mamba install --quiet --yes \
+        'xeus-cpp=0.10.*' \
+        'xtensor=0.9.*' \
+        'root=6.40.*' \
+        'root_cxx_standard=23' \
+        'gxx_linux-64'; do \
+        i=$((i+1)); [ $i -ge 5 ] && exit 1; sleep 10; \
+    done \
     && \
     mamba clean --all -f -y && \
     fix-permissions "${CONDA_DIR}"
