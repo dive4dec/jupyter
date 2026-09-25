@@ -50,7 +50,13 @@ import os, sys
 # layout the 0.1.5-rc.3 family resolves to after 0.2.64 was first built). We
 # do NOT hardcode the layout: resolve the base dir where ALL five target files
 # actually exist, so the patch is layout-agnostic and survives dsh bumps.
-DSH = "/opt/conda/lib/node_modules/@deepseek-ai/dsh"
+# Where the dsh package lives. The build installs dsh as a STAGED project
+# under /opt/conda/lib/dsh-stage (see the Dockerfile dsh block), so the dsh
+# package is at /opt/conda/lib/dsh-stage/node_modules/@deepseek-ai/dsh. The
+# historical global-install location is the fallback if that ever returns.
+DSH = os.environ.get(
+    "DSH_ROOT", "/opt/conda/lib/dsh-stage/node_modules/@deepseek-ai/dsh"
+)
 MARKER = "[dsh-web-subpath]"
 _PKG_FILES = [
     "dsh-client-connection/lib/client.js",
@@ -59,7 +65,17 @@ _PKG_FILES = [
     "dsh-client-ui-chat/lib/client.js",
     "dsh-session-log-export/lib/client.js",
 ]
+# Where npm places the @deepseek-ai/* deps of dsh depends on install style +
+# which family version the caret ranges resolve to:
+#   * flat top-level install (all @deepseek-ai pkgs installed together, exact
+#     versions) -> deps are SIBLINGS of dsh: <scope>/<pkg>, where
+#     <scope> = dirname(DSH) = .../node_modules/@deepseek-ai  (the 2026-09 fix)
+#   * `npm install -g dsh` alone, rc.2 float  -> deps NESTED under
+#     DSH/node_modules/@deepseek-ai/<pkg>  (the 0.2.64-era layout)
+# We do NOT hardcode the layout: search the top-level scope first (covers the
+# flat install), then the nested dirs, then anywhere under dsh.
 _BASE_CANDIDATES = [
+    os.path.dirname(DSH),  # flat install: deps are siblings under the @deepseek-ai scope
     DSH + "/node_modules/@deepseek-ai",
     DSH + "/node_modules/@deepseek-ai/dsh-web-app/node_modules/@deepseek-ai",
 ]
@@ -74,13 +90,15 @@ def _resolve_base():
     for base in _BASE_CANDIDATES:
         if all(os.path.isfile(os.path.join(base, f)) for f in _PKG_FILES):
             return base
-    # Last resort: locate each file anywhere under the dsh tree; require all 5.
+    # Last resort: locate each file under the top-level scope AND the dsh tree.
+    scope = os.path.dirname(DSH)
     found = {}
     for f in _PKG_FILES:
-        hits = glob.glob(DSH + "/node_modules/**/@deepseek-ai/" + f, recursive=True)
+        hits = glob.glob(os.path.join(scope, "**", f), recursive=True)
         if not hits:
-            fail("dsh-web-subpath: cannot find %s under %s (dsh layout changed?)"
-                 % (f, DSH))
+            hits = glob.glob(DSH + "/node_modules/**/@deepseek-ai/" + f, recursive=True)
+        if not hits:
+            fail("dsh-web-subpath: cannot find %s (dsh layout changed?)" % f)
         found[f] = sorted(hits)[0]
     # If all are found in one directory, use it; else fail (mixed layout is
     # not expected).

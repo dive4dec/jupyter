@@ -1,5 +1,52 @@
 # devenb Changelog
 
+## 0.2.68 (2026-09-26)
+
+### Fixed
+- **dsh web actually boots again — the 0.2.67 regression is root-caused and
+  fixed for good (no self-referential pin, fully deterministic).** A student
+  hit the hang this release set out to stop: the DeepSeek-harness launcher
+  (Jupyter Server Proxy → `dsh web`) hung because `dsh web` **crashed at boot**
+  (`Error: dsh: plugin(s) failed to load: @deepseek-ai/dsh-sandbox-local`),
+  so the proxy forwarded to a dead backend. 0.2.67's layout-agnostic patchers
+  masked the REAL cause: `dsh --version` runs fine (it never loads the sandbox
+  plugin), so the build's green version/marker gates gave false confidence.
+  - **Root cause:** a bare `npm install -g '@deepseek-ai/dsh@0.1.5-rc.2'` pins
+    only the top-level `dsh`; its ~240 `@deepseek-ai/*` deps use **caret
+    ranges** that re-resolve to whatever is newest at build time. After the
+    `0.1.5-rc.3` family was published (post-0.2.64) the carets floated to rc.3,
+    which NESTS `dsh-sandbox-local` (a devDep of `dsh`, prod dep of
+    `dsh-base`) where dsh's Cordis plugin loader
+    (`createRequire(...).resolve`, which follows only dependencies/
+    peerDependencies — NOT devDependencies) cannot reach it.
+  - **Fix — deterministic staged install (public npm only, no registry pin):**
+    dsh is now installed as a private **staged project** at
+    `/opt/conda/lib/dsh-stage` — a `dsh-stage-package.json` depending on
+    `@deepseek-ai/dsh@0.1.5-rc.2` with `overrides` pinning the ENTIRE 241-package
+    `@deepseek-ai` family to the exact rc.2 versions, locked bit-for-bit in a
+    committed `dsh-stage-package-lock.json`. `npm ci` reproduces that exact tree
+    on every build, so **no caret range can ever float again**. A `dsh` symlink
+    is placed on PATH (`/opt/conda/bin/dsh`) so the `41-dsh-web` boot hook needs
+    no change.
+  - **Why staged (project) not flat global:** the flat
+    `npm install -g <241 pkgs>` layout over-discovers `cordis-plugin-hmr`,
+    which requires `node --expose-internals` — not allowed via `NODE_OPTIONS` —
+    and crashes the bare `dsh web --port 3080` production launch. The staged
+    project layout is the one dsh's plugin loader + HMR service accept under the
+    bare launch (verified: 200, real UI, no plugin crash).
+  - **New end-to-end build gate** (`dsh_web_boot_gate.sh`): the build now
+    actually LAUNCHES `dsh web` (throwaway DSH_HOME/port) and requires an HTTP
+    2xx/3xx from the index before it passes — closing the gap where
+    0.2.67's per-file patch markers were green but the server never started.
+  - The subpath gate's syntax check is now LIVE: it was
+    `find … -exec node --check {} \;` (find does not propagate `-exec`'s exit
+    status, so a real syntax error passed silently); it is now
+    `find … -print0 | xargs -0 -r -n1 node --check` (verified: a broken file
+    fails the gate).
+- Reverts the 0.2.67 "green build / broken runtime" state: `dsh web` boots and
+  serves the tokenless, subpath-aware harness UI (verified in-image end to end
+  before this build: `npm ci` → patches → bare `dsh web` → HTTP 200).
+
 ## 0.2.67 (2026-09-25)
 
 ### Changed

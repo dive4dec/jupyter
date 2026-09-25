@@ -30,13 +30,23 @@ import sys
 from typing import NoReturn
 
 # @deepseek-ai/dsh-client-connection is a transitive dep of @deepseek-ai/dsh.
-# npm places it either HOISTED at ${DSH_ROOT}/node_modules/@deepseek-ai/ or
-# NESTED under .../dsh-web-app/node_modules/@deepseek-ai/, depending on which
-# @deepseek-ai/* family version the caret ranges resolve to (the layout changed
-# when the 0.1.5-rc.3 family was published, after 0.2.64 was first built). We
-# do NOT hardcode the layout: we resolve the real location at build time so the
-# patch is layout-agnostic and survives dsh version bumps.
-DSH_ROOT = "/opt/conda/lib/node_modules/@deepseek-ai/dsh"
+# Where npm places it depends on install style AND on which @deepseek-ai/*
+# family version the caret ranges resolve to (the layout changed when the
+# 0.1.5-rc.3 family was published, after 0.2.64 was first built):
+#   * global install, rc.2 float  -> NESTED under ${DSH_ROOT}/node_modules/@deepseek-ai/
+#                                     (possibly deep, e.g. .../dsh-web-app/node_modules/)
+#   * staged/project install       -> HOISTED as a SIBLING of dsh, i.e. at the
+#                                     project's top-level node_modules/
+# We do NOT hardcode the layout: we resolve the real location at build time so
+# the patch survives dsh version bumps and either install style.
+# Where the dsh package lives. The build installs dsh as a STAGED project
+# (see the Dockerfile dsh block) under /opt/conda/lib/dsh-stage, so the dsh
+# package is at /opt/conda/lib/dsh-stage/node_modules/@deepseek-ai/dsh. The
+# historical global-install location is kept as the fallback so the patcher
+# also works if that ever returns.
+DSH_ROOT = os.environ.get(
+    "DSH_ROOT", "/opt/conda/lib/dsh-stage/node_modules/@deepseek-ai/dsh"
+)
 CLIENT_INDEX = "dsh-client-connection/lib/index.js"
 MARKER = "[dsh-web-tokenless]"
 
@@ -47,22 +57,44 @@ def fail(msg: str) -> NoReturn:
 
 
 def find_target():
-    """Locate dsh-client-connection/lib/index.js, layout-agnostic."""
+    """Locate dsh-client-connection/lib/index.js, layout-agnostic.
+
+    Searches, in order of likelihood:
+      1. HOISTED as a sibling of dsh:   <parent-of-DSH_ROOT>/node_modules/@deepseek-ai/...
+         (staged / project-style install — dsh lives at <root>/node_modules/@deepseek-ai/dsh)
+      2. NESTED under dsh:              DSH_ROOT/node_modules/@deepseek-ai/...
+         (global install, hoisted rc.2 float)
+      3. Anywhere under DSH_ROOT (deep-nested, e.g. .../dsh-web-app/node_modules/).
+    """
+    # Sibling (project-style) install: dsh lives at <root>/node_modules/@deepseek-ai/dsh,
+    # so its deps hoist to <root>/node_modules/@deepseek-ai/<pkg>. That hoisted scope dir
+    # is exactly dirname(dirname(DSH_ROOT)) joined with the scope name — but simpler:
+    # scope_dir is already <root>/node_modules/@deepseek-ai, so its parent is
+    # <root>/node_modules and the hoisted scope is <parent>/@deepseek-ai (== scope_dir).
+    # In the global-install case DSH_ROOT=/opt/conda/lib/node_modules/@deepseek-ai/dsh, so
+    # scope_dir = /opt/conda/lib/node_modules/@deepseek-ai, whose deps hoist to
+    # /opt/conda/lib/node_modules/@deepseek-ai — the SAME dir. Thus the hoisted/sibling
+    # scope is ALWAYS scope_dir itself.
+    scope_dir = os.path.dirname(DSH_ROOT)  # .../node_modules/@deepseek-ai (hoisted scope)
+    nested_top = os.path.join(DSH_ROOT, "node_modules/@deepseek-ai")
     candidates = [
-        os.path.join(DSH_ROOT, "node_modules/@deepseek-ai", CLIENT_INDEX),
+        os.path.join(scope_dir, CLIENT_INDEX),        # hoisted / sibling scope
+        os.path.join(nested_top, CLIENT_INDEX),       # nested under dsh
         os.path.join(
-            DSH_ROOT,
-            "node_modules/@deepseek-ai/dsh-web-app/node_modules/@deepseek-ai",
-            CLIENT_INDEX,
+            nested_top, "dsh-web-app", "node_modules/@deepseek-ai", CLIENT_INDEX
         ),
     ]
     for cand in candidates:
         if os.path.isfile(cand):
             return cand
-    # Last resort: locate it anywhere under the dsh install tree.
+    # Last resort: locate it anywhere under DSH_ROOT (deep nesting).
     hits = glob.glob(
         os.path.join(DSH_ROOT, "node_modules", "**", CLIENT_INDEX), recursive=True
     )
+    if hits:
+        return sorted(hits)[0]
+    # And anywhere under the hoisted/sibling scope dir (staged install, deep).
+    hits = glob.glob(os.path.join(scope_dir, "**", CLIENT_INDEX), recursive=True)
     return sorted(hits)[0] if hits else None
 
 

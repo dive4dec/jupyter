@@ -798,21 +798,54 @@ RUN uv pip install --system --no-cache /tmp/jupyter-ai-hermes-magics && \
 # without any profile patch.
 # ──────────────────────────────────────────────────────────────────────────
 COPY --from=dsh-openai-shim --chown=${NB_USER}:${NB_GID} . /tmp/dsh-openai-shim
-# Hard install: shim (pip) + dsh npm distro (npm -g) + pnpm, all into the
-# conda env (ephemeral layer). Node 24 is already in conda (line ~319).
+# Hard install: shim (pip) + the dsh @deepseek-ai family (STAGED npm ci) + pnpm,
+# all into the conda env (ephemeral layer). Node 24 is already in conda (~line 319).
+#
+# ── VERSION LOCK (the 0.2.67 bug and its fix) ──────────────────────────────
+# A bare `npm install -g @deepseek-ai/dsh@0.1.5-rc.2` pins ONLY the top-level
+# `dsh` package; its ~240 internal `@deepseek-ai/*` deps use CARET ranges, so a
+# fresh install resolves them to whatever is newest at build time. When the
+# 0.1.5-rc.3 family was published (after 0.2.64 was built) those carets
+# floated to rc.3, which restructures the npm tree so `dsh-sandbox-local` (a
+# devDep of `dsh`, a prod dep of `dsh-base`) becomes NESTED where dsh's plugin
+# loader (createRequire(...).resolve) cannot find it -> `dsh web` crashes at
+# boot ("plugin(s) failed to load: dsh-sandbox-local") -> the JupyterLab
+# "DeepSeek harness" launcher page hangs. This was the 0.2.67 regression.
+#
+# FIX: install dsh as a STAGED project (a private package.json depending on
+# @deepseek-ai/dsh, with `overrides` pinning the ENTIRE @deepseek-ai family to
+# the exact 0.1.5-rc.2 versions) and lock the whole resolved tree in a committed
+# package-lock.json. `npm ci` (lockfile-driven, exact) reproduces that tree
+# bit-for-bit on every build — no caret range can ever float again. The staged
+# (project) layout is also the one dsh's plugin loader + HMR service accept under
+# the bare production launch (`nohup setsid dsh web --port 3080`): the flat
+# GLOBAL layout of `npm install -g <241 pkgs>` instead over-discovers
+# cordis-plugin-hmr, which requires `node --expose-internals` (not allowed in
+# NODE_OPTIONS) and crashes the bare launch. Verified end-to-end in-image:
+# npm ci -> tokenless+subpath patches -> bare `dsh web` -> HTTP 200 real UI.
+#
+# To bump dsh: regenerate dsh-stage-package.json (overrides) + run `npm install`
+# to refresh dsh-stage-package-lock.json from a known-good tree, confirm `dsh web`
+# serves, and rebuild. Do NOT hand-edit individual pins.
 #   --cache /tmp/dsh-npm-cache: the in-image /home/${NB_USER}/.npm is left
 #   root-owned by an earlier root step, so npm's default cache EACCES as ${NB_UID};
 #   using an ephemeral cache sidesteps it.
-#   --force: overwrites the conda bin/dsh if a previous layer left one (e.g.
-#   the PyPI deepseek-harness-sdk that 0.2.48-0.2.50 installed).
-RUN uv pip install --system --no-cache /tmp/dsh-openai-shim \
-    && npm install -g --force --no-fund --no-audit --cache /tmp/dsh-npm-cache \
-        '@deepseek-ai/dsh@0.1.5-rc.2' \
+#   dsh is symlinked onto PATH so the 41-dsh-web boot hook (`dsh web`) needs no
+#   change; DSH_ROOT is the staged dsh package dir the patchers + gates target.
+COPY --chown=${NB_USER}:${NB_GID} dsh-stage-package.json dsh-stage-package-lock.json /tmp/
+RUN mkdir -p /opt/conda/lib/dsh-stage \
+    && cp /tmp/dsh-stage-package.json /opt/conda/lib/dsh-stage/package.json \
+    && cp /tmp/dsh-stage-package-lock.json /opt/conda/lib/dsh-stage/package-lock.json \
+    && cd /opt/conda/lib/dsh-stage \
+    && npm ci --no-fund --no-audit --cache /tmp/dsh-npm-cache \
+    && ln -sf /opt/conda/lib/dsh-stage/node_modules/.bin/dsh /opt/conda/bin/dsh \
+    && uv pip install --system --no-cache /tmp/dsh-openai-shim \
     && npm install -g --no-fund --no-audit --cache /tmp/dsh-npm-cache pnpm \
-    && rm -rf /tmp/dsh-openai-shim /tmp/dsh-npm-cache \
+    && rm -rf /tmp/dsh-openai-shim /tmp/dsh-npm-cache /tmp/dsh-stage-package*.json \
     && fix-permissions "${CONDA_DIR}"
 # Non-fatal sanity: surface the resolved paths/versions in the build log.
 RUN echo "dsh CLI:  $(command -v dsh || echo 'MISSING — check PATH') v$(dsh --version 2>/dev/null | head -1)" \
+    && echo "dsh root: /opt/conda/lib/dsh-stage/node_modules/@deepseek-ai/dsh" \
     && echo "dsh web: $(dsh web --help 2>&1 | head -1)" \
     && echo "pnpm:   $(pnpm --version 2>/dev/null || echo 'MISSING')" \
     && echo "shim:   $(command -v dsh-openai-shim || echo 'MISSING')"
@@ -842,9 +875,10 @@ RUN PYTHONDONTWRITEBYTECODE=1 python3 /tmp/dsh-shim-gate.py \
 # shipping a token-gated image. (Divendb-specific; not a dsh upstream change.)
 # ──────────────────────────────────────────────────────────────────────────
 COPY --chown=${NB_USER}:${NB_GID} dsh-web-tokenless.py /tmp/dsh-web-tokenless.py
-RUN python /tmp/dsh-web-tokenless.py \
+RUN DSH_ROOT=/opt/conda/lib/dsh-stage/node_modules/@deepseek-ai/dsh \
+    && python /tmp/dsh-web-tokenless.py \
     && rm -f /tmp/dsh-web-tokenless.py \
-    && [ "$(find /opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules \
+    && [ "$(find /opt/conda/lib/dsh-stage/node_modules/@deepseek-ai \
               -path '*dsh-client-connection/lib/index.js' \
               -exec grep -l 'dsh-web-tokenless' {} + 2>/dev/null | wc -l)" -ge 1 ]
 
@@ -868,7 +902,8 @@ RUN python /tmp/dsh-web-tokenless.py \
 # bump that changes the source shape fails the build loudly.
 # ──────────────────────────────────────────────────────────────────────────
 COPY --chown=${NB_USER}:${NB_GID} dsh-web-subpath.py /tmp/dsh-web-subpath.py
-RUN DSH_BASE=/opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules \
+RUN DSH_ROOT=/opt/conda/lib/dsh-stage/node_modules/@deepseek-ai/dsh \
+    && DSH_BASE=/opt/conda/lib/dsh-stage/node_modules/@deepseek-ai \
     && python /tmp/dsh-web-subpath.py \
     && rm -f /tmp/dsh-web-subpath.py \
     && for f in \
@@ -879,10 +914,26 @@ RUN DSH_BASE=/opt/conda/lib/node_modules/@deepseek-ai/dsh/node_modules \
         dsh-session-log-export/lib/client.js; do \
         [ -n "$(find "$DSH_BASE" -path "*@deepseek-ai/$f" -type f | head -1)" ] \
           || { echo "dsh-web-subpath: cannot find $f under $DSH_BASE"; exit 1; } && \
-        find "$DSH_BASE" -path "*@deepseek-ai/$f" -type f -exec node --check {} \; \
+        find "$DSH_BASE" -path "*@deepseek-ai/$f" -type f -print0 \
+          | xargs -0 -r -n1 node --check \
           || { echo "SYNTAX ERROR after subpath patch in $f"; exit 1; }; \
       done \
     && [ "$(grep -rl 'dsh-web-subpath' "$DSH_BASE" --include=*.js | wc -l)" -ge 1 ]
+
+# ──────────────────────────────────────────────────────────────────────────
+# dsh web BOOT gate — the end-to-end guard that the per-file patch gates above
+# cannot provide. Patches matching a file proves nothing about `dsh web`
+# actually STARTING. This gate launches `dsh web` (throwaway DSH_HOME/port) and
+# requires the tokenless-patched server to answer the index with HTTP 2xx/3xx.
+# A boot crash — e.g. "plugin(s) failed to load: dsh-sandbox-local" from an npm
+# layout that nests a plugin where dsh's loader can't resolve it — means no
+# response, so the build fails LOUDLY instead of shipping an image whose
+# "DeepSeek harness" launcher page hangs. (This is the exact 0.2.67 failure
+# that the earlier patch gates failed to catch.)
+# ──────────────────────────────────────────────────────────────────────────
+COPY --chown=${NB_USER}:${NB_GID} dsh_web_boot_gate.sh /tmp/dsh-web-boot-gate.sh
+RUN bash /tmp/dsh-web-boot-gate.sh \
+    && rm -f /tmp/dsh-web-boot-gate.sh
 
 # ──────────────────────────────────────────────────────────────────────────
 # NOTE: the jupyter-ai-dsh ACP *persona* was removed (0.2.49). dsh is now used
