@@ -773,6 +773,27 @@ RUN uv pip install --system --no-cache /tmp/jupyter-ai-hermes-magics && \
     rm -rf /tmp/jupyter-ai-hermes-magics && \
     fix-permissions "${CONDA_DIR}"
 
+# Install sliveshow (animated-slideshow JupyterLab extension) + anywidget
+# (JS-rendered widget library). Plain PyPI wheels, NOT build contexts.
+#  - sliveshow 0.2.4 is a statically-BUNDLED labextension (bundled static/*.js
+#    + a remoteEntry.<hash>.js federation manifest, main: lib/index.js,
+#    @jupyterlab ^4.4.0 deps) — structurally identical to the in-repo
+#    jupyter-divewidgets, which already loads in this prebuilt lab. So a plain
+#    `uv pip install` (which drops the frontend into
+#    /opt/conda/share/jupyter/labextensions/sliveshow/) is picked up by the
+#    prebuilt lab at runtime — NO `jupyter lab build` needed.
+#  - anywidget 0.11.0 is a JS-rendered widget (no labextension at all; renders
+#    in the browser via static imports). NOTE: the PyPI name is `anywidget`
+#    (the bare "anywidgets" 404s).
+# Version-asserted so the build fails loudly if a pinned version disappears.
+RUN uv pip install --system --no-cache \
+        'sliveshow==0.2.4' \
+        'anywidget==0.11.0' \
+    && /opt/conda/bin/python -c "import importlib.metadata as m; v1=m.version('sliveshow'); v2=m.version('anywidget'); assert v1=='0.2.4', v1; assert v2=='0.11.0', v2; print('sliveshow', v1, '| anywidget', v2)" \
+    && /opt/conda/bin/python -c "import anywidget; print('anywidget import ok:', anywidget.__version__)" \
+    && /opt/conda/bin/python -c "import sliveshow; print('sliveshow import ok')" \
+    && fix-permissions "${CONDA_DIR}"
+
 # ──────────────────────────────────────────────────────────────────────────
 # DeepSeek Harness (dsh) + dsh-openai-shim
 #
