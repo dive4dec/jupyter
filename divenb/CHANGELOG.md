@@ -1,5 +1,36 @@
 # devenb Changelog
 
+## 0.2.72 (2026-09-29)
+
+### Fixed
+- **DeepSeek Harness "duplicate message_start / MALFORMED_RESPONSE" — the dsh
+  0.2.0-rc.1 Anthropic `/v1/messages` stream is malformed by LiteLLM and dsh's
+  client rejects it.** dsh 0.2.0-rc.1 switched from OpenAI
+  `/v1/chat/completions` to the Anthropic `/v1/messages` protocol, but LiteLLM
+  1.88.0's Anthropic adapter emits **two** `message_start` SSE events (same
+  message id) for a single message. dsh's strict client rejects the duplicate:
+  `MALFORMED_RESPONSE: duplicate message_start` → the whole turn fails. Fix in
+  `dsh-openai-shim` (0.2.2 → 0.2.3): the SSE forwarder now runs a
+  `_SSEMessageStartDedup` filter that drops a repeat `message_start` carrying
+  the same message id (a well-formed Messages stream has exactly one),
+  forwarding every other byte unchanged. Two non-obvious traps found while
+  verifying in-pod: (1) the upstream is `Transfer-Encoding: chunked` and the
+  shim reads the raw wire (`resp.fp.read1`), so the FIRST event arrives with a
+  hex chunk-size line (`2be\r\n`=666) glued to its front — the detector matches
+  the `event: message_start` LINE anywhere in the event, not at position 0;
+  (2) `dsh-proxy restart` hits the idempotent `ensure_shim` path (port still
+  open) and does NOT respawn the daemon, so a live in-pod verify requires
+  killing the daemon PID + `dsh-proxy ensure` (and the new PID must start
+  AFTER the file mtime or it loads the old code from memory). 6 new tests
+  (unit + end-to-end with a LiteLLM-shaped chunked duplicate-start fake
+  upstream); 91 tests pass. In-pod-verified against the real LiteLLM before
+  this build: 3 consecutive live requests each return exactly one
+  `event: message_start`.
+  NOTE: the duplicate is generated UPSTREAM by LiteLLM (a direct
+  `/v1/messages` call, bypassing the shim, shows the two events) — the shim is
+  the durable, in-path place to normalize it; this is the same category as the
+  existing `reasoning_effort`/`max_tokens` rewrites.
+
 ## 0.2.71 (2026-09-28)
 
 ### Upgraded
