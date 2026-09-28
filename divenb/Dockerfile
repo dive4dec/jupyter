@@ -835,15 +835,17 @@ COPY --from=dsh-openai-shim --chown=${NB_USER}:${NB_GID} . /tmp/dsh-openai-shim
 #
 # FIX: install dsh as a STAGED project (a private package.json depending on
 # @deepseek-ai/dsh, with `overrides` pinning the ENTIRE @deepseek-ai family to
-# the exact 0.1.5-rc.2 versions) and lock the whole resolved tree in a committed
-# package-lock.json. `npm ci` (lockfile-driven, exact) reproduces that tree
-# bit-for-bit on every build — no caret range can ever float again. The staged
+# the exact versions the staged files specify — currently 0.2.0-rc.1, the
+# "next" tag — see dsh-stage-package.json) and lock the whole resolved tree in
+# a committed package-lock.json. `npm ci` (lockfile-driven, exact) reproduces
+# that tree bit-for-bit on every build — no caret range can ever float again. The staged
 # (project) layout is also the one dsh's plugin loader + HMR service accept under
 # the bare production launch (`nohup setsid dsh web --port 3080`): the flat
 # GLOBAL layout of `npm install -g <241 pkgs>` instead over-discovers
 # cordis-plugin-hmr, which requires `node --expose-internals` (not allowed in
 # NODE_OPTIONS) and crashes the bare launch. Verified end-to-end in-image:
-# npm ci -> tokenless+subpath patches -> bare `dsh web` -> HTTP 200 real UI.
+# npm ci -> tokenless patch -> bare `dsh web` -> HTTP 200 real UI. (Subpath
+# support is NATIVE in dsh >=0.2.0-rc.1 — no build patch; see the note below.)
 #
 # To bump dsh: regenerate dsh-stage-package.json (overrides) + run `npm install`
 # to refresh dsh-stage-package-lock.json from a known-good tree, confirm `dsh web`
@@ -904,46 +906,29 @@ RUN DSH_ROOT=/opt/conda/lib/dsh-stage/node_modules/@deepseek-ai/dsh \
               -exec grep -l 'dsh-web-tokenless' {} + 2>/dev/null | wc -l)" -ge 1 ]
 
 # ──────────────────────────────────────────────────────────────────────────
-# dsh web UI: make it work under a URL SUBPATH (divendb-only, build-time).
-# The `dsh --profile web` SPA is built to be served at the origin root (/).
-# In the divendb image it is reached ONLY through the JupyterHub + code-server
-# proxy path (…/vscode/proxy/3080/), so the browser — sitting at that subpath —
-# would resolve the main bundle, plugin scripts, API and WebSocket against the
-# site root → all 404 → blank page. (code-server's transparent proxy STRIPS the
-# /vscode/proxy/<port> prefix before forwarding to 127.0.0.1:3080, so the
-# server always sees root and is fine; the break is purely client-side URL
-# resolution.) The patch makes every client-side URL base-aware:
-#   · host-frontend-static: <base href="/"> -> "./", and /plugins/ -> ./plugins/
-#   · client-connection / api-gateway / client-ui-chat / session-log-export:
-#     base location.origin -> document.baseURI, and strip leading/trailing
-#     slashes so new URL("api/x", base) and ws://…/api/remote.mux land under
-#     the proxy prefix.
-# Works at origin root too (no prefix → baseURI = origin+"/"). Deterministic:
-# each replacement asserts its target appears exactly once, so a dsh version
-# bump that changes the source shape fails the build loudly.
+# dsh web UI subpath support — now NATIVE in dsh (no build patch).
+# dsh 0.2.0-rc.1 ships the web SPA already base-aware: <base href="./"> is
+# hardcoded in dsh-host-frontend-static, and the RPC / api / WS / export
+# routes use document.baseURI + leading-slash stripping (.slice(1)). The
+# divendb image is reached only through the code-server proxy subpath
+# (…/vscode/proxy/3080/); upstream now resolves every client-side URL
+# base-aware, so the former dsh-web-subpath.py build patcher is REMOVED
+# (dead code for >=0.2.0-rc.1 — its exact-match patches target pre-0.2.0
+# source and fail the build; do NOT re-add it). The gate below is the
+# regression guard: if a future dsh bump ever regresses to an origin-absolute
+# SPA (re-introducing the subpath 404/blank-page break), the build FAILS
+# loudly instead of shipping a broken student UI.
+RUN DSH_BASE=/opt/conda/lib/dsh-stage/node_modules/@deepseek-ai \
+    && grep -q 'base href="\./"' "$DSH_BASE/dsh-host-frontend-static/lib/index.js" \
+      || { echo "dsh subpath REGRESSED: <base href=\"./\"> missing from host-frontend-static (origin-absolute SPA? re-add a subpath patcher)"; exit 1; } \
+    && grep -q 'document.baseURI' "$DSH_BASE/dsh-api-gateway/lib/client.js" \
+      || { echo "dsh subpath REGRESSED: document.baseURI missing from api-gateway client (WS base no longer base-aware)"; exit 1; } \
+    && echo "dsh subpath gate: OK — web SPA is base-aware (native, no patch)"
 # ──────────────────────────────────────────────────────────────────────────
-COPY --chown=${NB_USER}:${NB_GID} dsh-web-subpath.py /tmp/dsh-web-subpath.py
-RUN DSH_ROOT=/opt/conda/lib/dsh-stage/node_modules/@deepseek-ai/dsh \
-    && DSH_BASE=/opt/conda/lib/dsh-stage/node_modules/@deepseek-ai \
-    && python /tmp/dsh-web-subpath.py \
-    && rm -f /tmp/dsh-web-subpath.py \
-    && for f in \
-        dsh-host-frontend-static/lib/index.js \
-        dsh-client-connection/lib/client.js \
-        dsh-api-gateway/lib/client.js \
-        dsh-client-ui-chat/lib/client.js \
-        dsh-session-log-export/lib/client.js; do \
-        [ -n "$(find "$DSH_BASE" -path "*@deepseek-ai/$f" -type f | head -1)" ] \
-          || { echo "dsh-web-subpath: cannot find $f under $DSH_BASE"; exit 1; } && \
-        find "$DSH_BASE" -path "*@deepseek-ai/$f" -type f -print0 \
-          | xargs -0 -r -n1 node --check \
-          || { echo "SYNTAX ERROR after subpath patch in $f"; exit 1; }; \
-      done \
-    && [ "$(grep -rl 'dsh-web-subpath' "$DSH_BASE" --include=*.js | wc -l)" -ge 1 ]
 
 # ──────────────────────────────────────────────────────────────────────────
-# dsh web BOOT gate — the end-to-end guard that the per-file patch gates above
-# cannot provide. Patches matching a file proves nothing about `dsh web`
+# dsh web BOOT gate — the end-to-end guard that a per-file patch gate cannot
+# provide. A patch matching a file proves nothing about `dsh web`
 # actually STARTING. This gate launches `dsh web` (throwaway DSH_HOME/port) and
 # requires the tokenless-patched server to answer the index with HTTP 2xx/3xx.
 # A boot crash — e.g. "plugin(s) failed to load: dsh-sandbox-local" from an npm

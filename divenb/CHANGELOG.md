@@ -1,5 +1,37 @@
 # devenb Changelog
 
+## 0.2.71 (2026-09-28)
+
+### Upgraded
+- **dsh 0.1.5-rc.2 → 0.2.0-rc.1** (the `next` tag — no longer alpha). The
+  `@deepseek-ai/dsh` family is bumped via the deterministic staged install:
+  `dsh-stage-package.json` overrides + `dsh-stage-package-lock.json` were
+  regenerated for the 0.2.0-rc.1 family (289 overrides, top-level
+  `@deepseek-ai/dsh@0.2.0-rc.1`, `npm ci` lockfile-driven). Verified in a
+  node:24 rehearsal before building: `npm ci` clean, `dsh-sandbox-local`
+  resolvable by the Cordis plugin loader (the 0.2.67 boot-crash class is
+  absent in the staged layout), and `dsh web` boots and serves **HTTP 200**
+  (no plugin crash) — the exact failure the in-build boot gate exists to catch.
+
+### Changed
+- **`dsh-web-tokenless.py` — Patch C (`authenticatedUrl`) regex updated.**
+  0.2.0-rc.1 dropped the `url.search = ""` / `url.hash = ""` lines that the
+  old regex anchored on, so the token-appending line is now matched with the
+  `return url.href` that follows (present in both 0.1.5-rc.2 and 0.2.0-rc.1 →
+  version-resilient). Patches A (`isAuthenticated`) and B (`requestRejection`)
+  were unchanged by the bump.
+- **`dsh-web-subpath.py` REMOVED (dead code).** dsh 0.2.0-rc.1 ships the web
+  SPA **already base-aware**: `<base href="./">` is hardcoded in
+  `dsh-host-frontend-static`, and the RPC / api / WS / export routes use
+  `document.baseURI` + leading-slash stripping (`.slice(1)`). The old patcher's
+  8 exact-match patches target pre-0.2.0 source that no longer exists, so it
+  would have failed the build. Its function now ships in the package, so the
+  patcher + its Dockerfile block are deleted. A **new build-time gate** asserts
+  the two base-aware markers (`base href="./"` in host-frontend-static,
+  `document.baseURI` in the api-gateway client) so a future dsh bump that ever
+  regresses to an origin-absolute SPA fails the build loudly instead of
+  shipping a blank student UI under the code-server proxy subpath.
+
 ## 0.2.68 (2026-09-26)
 
 ### Fixed

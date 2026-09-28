@@ -173,18 +173,19 @@ def main() -> None:
 
     # ------------------------------------------------------------------ #
     # Patch C: keep the printed startup URL clean (no `?token=...`).       #
-    # authenticatedUrl() otherwise appends the launch token to the URL.    #
+    # authenticatedUrl() appends the launch token to the URL. We strip the #
+    # token-appending line so the printed index URL is clean. Anchored to   #
+    # the token line + the `return url.href` that follows — both present   #
+    # in 0.1.5-rc.2 (after `url.search=""`/`url.hash=""`) and in           #
+    # 0.2.0-rc.1 (no search/hash lines), so the regex survives that bump.  #
     # ------------------------------------------------------------------ #
     c = re.compile(
-        r"(\t\turl\.search = \"\";\n"
-        r"\t\turl\.hash = \"\";\n)"
         r"\t\turl\.searchParams\.set\(TOKEN_QUERY, this\.launchToken\);\n"
         r"(\t\treturn url\.href;)"
     )
     c_new = (
-        "\\1"
         "\t\t/* [dsh-web-tokenless] do not append ?token=... to the printed URL */\n"
-        "\\2"
+        "\\1"
     )
     src, n = c.subn(c_new, src, count=1)
     if n != 1:
