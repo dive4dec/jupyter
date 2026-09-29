@@ -1,5 +1,18 @@
 # devenb Changelog
 
+## 0.2.74 (2026-09-29)
+
+### Fixed
+- **Completed the non-litellm dsh fix.** 0.2.73 (dsh-openai-shim 0.2.4) only
+  dropped dsh's `thinking` field, but the retry still failed: socratic/ai-test
+  500'd on dsh's nonstandard `output_config:{effort:"high"}` field, and spark
+  overflowed its 64k window (the shim's input estimator counted only
+  `messages`, not the 24 tool definitions dsh sends). Bakes **dsh-openai-shim
+  0.2.5**, which adds an `output_config` self-heal, a **stacking** retry loop
+  (up to 3 attempts so multiple self-heals apply to one request), and a
+  full-input estimator (`messages` + `system` + `tools`). Verified in-pod:
+  spark (short + long), socratic, and litellm all answer cleanly.
+
 ## 0.2.73 (2026-09-29)
 
 ### Fixed
