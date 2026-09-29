@@ -1,5 +1,19 @@
 # devenb Changelog
 
+## 0.2.73 (2026-09-29)
+
+### Fixed
+- **DeepSeek Harness fails on non-litellm providers (socratic/ai-test, spark)
+  with `thinking: Value error, thinking.budget_tokens is required when
+  thinking.type is 'enabled'`.** Not a shim bug and no litellm hardcoding —
+  dsh 0.2.0-rc.1 sends `thinking: {type: "enabled"}` (no budget) to every
+  provider, and the backends disagree about it. Bakes **dsh-openai-shim
+  0.2.4** into the image, which self-heals it the same way it already handles
+  `max_tokens`: on a 400 about the `thinking` field, drop the field and retry
+  once. Makes socratic + spark work, leaves litellm untouched, and is generic
+  (any backend), not per-provider. Verified in-pod against the live backends
+  (spark 400→retry→200 with the self-heal logged; socratic 200).
+
 ## 0.2.72 (2026-09-29)
 
 ### Fixed
