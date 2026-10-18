@@ -1,5 +1,24 @@
 # devenb Changelog
 
+## 0.2.79 (2026-10-18)
+
+### Changed
+- **Bake the dsh routing env into the image.** `DEEPSEEK_BASE_URL`
+  (`http://127.0.0.1:8090/v1`, the loopback shim endpoint — the shim port is
+  the constant `DSH_SHIM_PORT` default 8090) and `DEEPSEEK_API_KEY`
+  (`dsh-proxy-local`, a placeholder — dsh's `deepseek-official` provider
+  hard-refuses to run without a key env present, but the shim ignores the
+  inbound key; the real upstream key is the provider's `api_key` in
+  `~/.dsh/proxy.conf`) are now `ENV` in the Dockerfile's dsh section. They are
+  image architecture constants, not deployment policy (they were identical in
+  all dsh-enabled hub values files). This makes local `docker run` behave
+  identically to the hub — without the env, `docker run` dsh falls back to the
+  real DeepSeek API and errors "no API key for provider route
+  deepseek-official". Per-hub `extraEnv` copies can now be deleted (edbt done
+  in 0.2.79; cs1302a/cs2310 on hold). Runtime override (pod `extraEnv` /
+  `docker run -e`) wins over image `ENV`, so a future different shim port needs
+  no ARG and no rebuild.
+
 ## 0.2.74 (2026-09-29)
 
 ### Fixed

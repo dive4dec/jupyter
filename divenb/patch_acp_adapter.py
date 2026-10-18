@@ -270,17 +270,17 @@ from collections import defaultdict, deque
 """,
     ),
     (
-        """        with state.runtime_lock:
-            state.is_running = False
-            state.current_prompt_text = ""
-        while True:
+        """            with state.runtime_lock:
+                state.is_running = False
+                state.current_prompt_text = ""
+            await self._drain_queued_prompts(state, session_id, conn)
 """,
-        """        with state.runtime_lock:
-            state.is_running = False
-            state.current_prompt_text = ""
-            # WATCHDOG_MARKER_HERMES_WD — turn finished; stop the stall clock.
-            state.turn_started = 0.0
-        while True:
+        """            with state.runtime_lock:
+                state.is_running = False
+                state.current_prompt_text = ""
+                # WATCHDOG_MARKER_HERMES_WD — turn finished; stop the stall clock.
+                state.turn_started = 0.0
+            await self._drain_queued_prompts(state, session_id, conn)
 """,
     ),
     (

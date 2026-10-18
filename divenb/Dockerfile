@@ -112,7 +112,7 @@ RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor 
 
 # code-server
 RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
-    sh /tmp/install.sh --version 4.138.0 && \
+    sh /tmp/install.sh --version 4.141.0 && \
     fix-permissions "${HOME}" && \
     fix-permissions /usr/lib/code-server/ && \
     rm -rf ~/.cache/code-server/ && \
@@ -174,7 +174,7 @@ RUN update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/
 # NOTE: since 1.13.7 the .desktop file is md.obsidian.Obsidian.desktop (was
 # obsidian.desktop in <=1.13.4); glob over both so the Exec rewrite survives renames.
 RUN ARCH=$(dpkg --print-architecture) && \
-    wget -q "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.13.7/obsidian_1.13.7_amd64.deb" -O /tmp/obsidian.deb && \
+    wget -q "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.14.4/obsidian_1.14.4_amd64.deb" -O /tmp/obsidian.deb && \
     apt-get update --yes && \
     apt-get install --yes --no-install-recommends /tmp/obsidian.deb && \
     rm /tmp/obsidian.deb && \
@@ -523,17 +523,15 @@ USER root
 # where both JupyterLab and code-server can find it.
 
 # Clone hermes-agent, build dashboard web_dist, and pip install into conda
-RUN git clone --depth 1 --branch v2026.9.14 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
+RUN git clone --depth 1 --branch v0.22.2 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-agent && \
     # hermes requires setuptools>=77 for SPDX license expression
     uv pip install --system --no-cache 'setuptools>=77' && \
-    # Patch: fix the ACP cancel (stop button) None-crash (still present in v2026.9.14).
-    # When interrupted mid-tool-loop, run_conversation returns final_response=None;
-    # .get("final_response", "") returns None (key exists, default ignored), then
-    # None.startswith() raises AttributeError → "Internal error" → stop button errors.
-    # (The old "junk output after cancel" bug 2 was refactored upstream in 0.21.x: the
-    #  block now uses a local `suppress` var and the INTERRUPT_WAITING_FOR_MODEL_PREFIX
-    #  import is still in use — so that sed no longer applies. Re-verify this sed after
-    #  the next hermes bump: it must match exactly once.)
+    # Fix the ACP cancel (stop button) None-crash. NOTE: as of v0.22.2 the
+    # upstream server.py already uses `result.get("final_response") or ""` at
+    # the turn-finished site, so this sed is a no-op here — it is kept as a
+    # guard: if a future hermes reverts to the buggy `.get(..., "")` form the
+    # sed patches it again (it only matches that exact buggy string, so it can
+    # never corrupt the fixed form). Re-verify after any hermes bump.
     sed -i 's/final_response = result.get("final_response", "")/final_response = result.get("final_response") or ""/' \
         /tmp/hermes-agent/acp_adapter/server.py && \
     # Build the dashboard web UI (required for jupyter-hermes-proxy)
@@ -561,39 +559,18 @@ RUN git clone --depth 1 --branch v2026.9.14 https://github.com/NousResearch/herm
         && \
     fix-permissions "${CONDA_DIR}"
 
-# Patch: hermes-agent v2026.8.31 (0.21.0) daemon_pool.py is broken on Python 3.14
-#
-# tools/daemon_pool.py ships DaemonThreadPoolExecutor._adjust_thread_count
-# hard-coded to the CPython 3.8-3.13 ThreadPoolExecutor private API
-# (self._initializer / self._initargs passed to _worker). CPython 3.14
-# removed those attributes; the initializer now lives in a WorkerContext
-# built via self._create_worker_context() and _worker's signature changed to
-# _worker(exec_ref, ctx, work_queue). Result: the FIRST submit() on any
-# DaemonThreadPoolExecutor raises
-#     AttributeError: 'DaemonThreadPoolExecutor' object has no attribute
-#     '_initializer'
-# because hermes routes EVERY tool call through that pool
-# (agent/tool_executor.py), so every tool (MCP, terminal, read_file,
-# web_search, execute_code) fails for the lifetime of the session. This
-# image runs Python 3.14, so the %%hermes persona was completely broken;
-# hosts on Python <= 3.13 are unaffected.
-#
-# Fix: overwrite the installed module with hermes_daemon_pool_314.py
-# (byte-identical to upstream except a sys.version_info >= (3, 14) guard in
-# _adjust_thread_count). Gate: hermes_daemon_pool_gate.py then exercises the
-# PATCHED (installed) pool — submit, results, daemon flag, _threads_queues
-# absence, initializer path, and a wedged-worker exit check in a subprocess
-# pinned to site-packages — failing the build on any regression.
-# Re-verify this whole step after any hermes-agent version bump.
-COPY hermes_daemon_pool_314.py /tmp/hermes-daemon-pool-314.py
+# Python 3.14 daemon_pool fix: as of v0.22.2 (0.22.x) upstream ALREADY ships
+# both fixes our local override provided (the sys._create_worker_context() guard
+# in _adjust_thread_count AND the contextvar-propagating submit()). The old
+# hermes_daemon_pool_314.py was a 0.21.3 snapshot and is now STALE — keeping it
+# would regress 0.22.2's newer daemon_pool. So we no longer override the module.
+# The gate below is kept as a build-time regression net: it exercises the
+# installed (upstream) tools/daemon_pool on Python 3.14 — submit + results,
+# daemon worker flag, _threads_queues absence, initializer path, and a
+# wedged-worker exit check — failing the build if a future hermes bump breaks it.
+# Re-verify this gate after any hermes-agent version bump.
 COPY hermes_daemon_pool_gate.py /tmp/hermes-daemon-pool-gate.py
-RUN mv /tmp/hermes-daemon-pool-314.py "${CONDA_DIR}/lib/python3.14/site-packages/tools/daemon_pool.py" && \
-    # PYTHONDONTWRITEBYTECODE: keep the gate (and its subprocess) from
-    # dropping root-owned .pyc files into site-packages.
-    PYTHONDONTWRITEBYTECODE=1 python3 /tmp/hermes-daemon-pool-gate.py "${CONDA_DIR}/lib/python3.14/site-packages" && \
-    # This stage runs as root, but later fix-permissions runs as ${NB_USER}
-    # and cannot chown/chmod root-owned files — hand ownership over now.
-    chown "${NB_UID}:${NB_GID}" "${CONDA_DIR}/lib/python3.14/site-packages/tools/daemon_pool.py" && \
+RUN PYTHONDONTWRITEBYTECODE=1 python3 /tmp/hermes-daemon-pool-gate.py "${CONDA_DIR}/lib/python3.14/site-packages" && \
     rm -f /tmp/hermes-daemon-pool-gate.py
 
 # ------------------------------------------------------------------
@@ -704,7 +681,7 @@ RUN code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions \
 
 # Jupyter AI
 RUN uv pip install --system --no-cache \
-    'jupyter-ai==3.1.*' \
+    'jupyter-ai==3.2.*' \
     # 'jupyter-ai-jupyternaut' \
     # 'jupyter-ai-magic-commands' \
     && \
@@ -775,7 +752,7 @@ RUN uv pip install --system --no-cache /tmp/jupyter-ai-hermes-magics && \
 
 # Install sliveshow (animated-slideshow JupyterLab extension) + anywidget
 # (JS-rendered widget library). Plain PyPI wheels, NOT build contexts.
-#  - sliveshow 0.2.4 is a statically-BUNDLED labextension (bundled static/*.js
+#  - sliveshow 0.2.5 is a statically-BUNDLED labextension (bundled static/*.js
 #    + a remoteEntry.<hash>.js federation manifest, main: lib/index.js,
 #    @jupyterlab ^4.4.0 deps) — structurally identical to the in-repo
 #    jupyter-divewidgets, which already loads in this prebuilt lab. So a plain
@@ -787,9 +764,9 @@ RUN uv pip install --system --no-cache /tmp/jupyter-ai-hermes-magics && \
 #    (the bare "anywidgets" 404s).
 # Version-asserted so the build fails loudly if a pinned version disappears.
 RUN uv pip install --system --no-cache \
-        'sliveshow==0.2.4' \
+        'sliveshow==0.2.5' \
         'anywidget==0.11.0' \
-    && /opt/conda/bin/python -c "import importlib.metadata as m; v1=m.version('sliveshow'); v2=m.version('anywidget'); assert v1=='0.2.4', v1; assert v2=='0.11.0', v2; print('sliveshow', v1, '| anywidget', v2)" \
+    && /opt/conda/bin/python -c "import importlib.metadata as m; v1=m.version('sliveshow'); v2=m.version('anywidget'); assert v1=='0.2.5', v1; assert v2=='0.11.0', v2; print('sliveshow', v1, '| anywidget', v2)" \
     && /opt/conda/bin/python -c "import anywidget; print('anywidget import ok:', anywidget.__version__)" \
     && /opt/conda/bin/python -c "import sliveshow; print('sliveshow import ok')" \
     && fix-permissions "${CONDA_DIR}"
@@ -1182,6 +1159,22 @@ USER ${NB_UID}
 COPY jupyter_storage_usage-0.1.0-py3-none-any.whl /tmp/
 RUN uv pip install --system --no-cache /tmp/jupyter_storage_usage-0.1.0-py3-none-any.whl && \
     fix-permissions "${CONDA_DIR}"
+
+# Ensure the notebook user OWNS its home directory (user, not just group).
+# Several steps earlier in this image run as `USER root` (the wget, cmake,
+# npm/hermes, and dsh install steps). HOME stays /home/jovyan even under
+# USER root, so those steps drop ROOT-OWNED dotfiles/dotdirs into the home
+# (e.g. .wget-hsts, .cmake, .cache, .hermes). fix-permissions only fixes
+# GROUP ownership (chgrp ${NB_GID} + g+rwX) — it never fixes the owning
+# USER — so the notebook user still cannot write into those dirs (the
+# "jovyan can't write to ~/.hermes" symptom). This final chown runs after
+# every root step in the image and re-attributes the whole home tree to
+# jovyan, so the notebook user can write its own dotdirs. (Metadata-only:
+# creates a tiny layer, not a copy of the data.)
+USER root
+RUN chown -R "${NB_UID}:${NB_GID}" "/home/${NB_USER}" && \
+    chmod 750 "/home/${NB_USER}"
+USER ${NB_UID}
 
 WORKDIR "${HOME}"
 
