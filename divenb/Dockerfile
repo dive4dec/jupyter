@@ -791,9 +791,25 @@ RUN uv pip install --system --no-cache \
 #   pnpm                   → needed ONLY for `dsh plugin add`; running dsh needs no pnpm
 #
 # The npm `dsh` reads DEEPSEEK_BASE_URL + DEEPSEEK_API_KEY env at runtime
-# (confirmed in source: "DEEPSEEK_BASE_URL wins when set"), so the spawner-
-# injected env (→ :8090 shim) auto-routes all dsh LLM calls through the shim
-# without any profile patch.
+# (confirmed in source: "DEEPSEEK_BASE_URL wins when set"), so routing env
+# auto-directs all dsh LLM calls through the in-pod shim without any profile
+# patch. Both values are image ARCHITECTURE constants, not deployment policy:
+#   DEEPSEEK_BASE_URL = the loopback shim endpoint. The shim's port is
+#     DSH_SHIM_PORT (default 8090) and no deployment overrides it, so the
+#     URL is constant. "deepseek-official" is dsh's stock provider NAME —
+#     the base-url redirect is what makes it a transport to the shim.
+#   DEEPSEEK_API_KEY  = a placeholder. dsh's deepseek provider hard-refuses
+#     to run without a key env present; the shim ignores the inbound key
+#     (loopback-only, no auth) — the REAL upstream key is the provider's
+#     api_key in ~/.dsh/proxy.conf. Value is arbitrary; any non-empty string
+#     works.
+# Baking them as ENV (instead of per-hub extraEnv) makes local
+# `docker run` behave identically to the hub (singleuser pods inherit image
+# ENV), with zero duplication. A deployment that ever needs a different shim
+# port overrides at RUNTIME (pod extraEnv / `docker run -e`), which wins over
+# image ENV — no ARG needed.
+ENV DEEPSEEK_BASE_URL=http://127.0.0.1:8090/v1
+ENV DEEPSEEK_API_KEY=***
 # ──────────────────────────────────────────────────────────────────────────
 COPY --from=dsh-openai-shim --chown=${NB_USER}:${NB_GID} . /tmp/dsh-openai-shim
 # Hard install: shim (pip) + the dsh @deepseek-ai family (STAGED npm ci) + pnpm,
