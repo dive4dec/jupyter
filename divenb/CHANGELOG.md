@@ -1,5 +1,19 @@
 # devenb Changelog
 
+## 0.2.80 (2026-10-18)
+
+### Changed
+- **dsh-openai-shim 0.2.8: `dsh-proxy use` closes the seeding gap.** When a
+  student adds/selects a provider *after* boot (fresh standalone container:
+  empty `proxy.conf` at boot → the boot `seed-settings` skipped on "no
+  provider selected"), `use` now seeds `~/.dsh/settings.yaml` from the
+  provider just selected (seed-once: an existing student-edited file is never
+  clobbered) and refreshes a running `dsh web` so the fresh default model is
+  loaded (dsh reads `settings.yaml` at start). Without this, dsh fell back to
+  its built-in `deepseek-flash`, which a scoped upstream key rejects as a
+  misleading "API key is invalid". No-op on the hub (settings.yaml always
+  exists from boot).
+
 ## 0.2.79 (2026-10-18)
 
 ### Changed
