@@ -121,10 +121,14 @@ RUN wget -q https://code-server.dev/install.sh -O /tmp/install.sh && \
 
 # Install Google Chrome (Chromium-family browser for Hermes CDP + student use)
 # Ubuntu's chromium-browser is a snap stub unusable in Docker, so use Google's apt repo
-RUN wget -q https://dl.google.com/linux/linux_signing_key.pub -O /tmp/chrome-key.pub && \
+RUN ARCH=$(dpkg --print-architecture) && \
+    wget -q https://dl.google.com/linux/linux_signing_key.pub -O /tmp/chrome-key.pub && \
     mkdir -p /etc/apt/keyrings && \
     cat /tmp/chrome-key.pub | gpg --dearmor > /etc/apt/keyrings/google-chrome.gpg && \
-    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+    # arch-aware: Google's apt repo publishes BOTH amd64 and arm64 (binary-arm64
+    # exists), so build natively per-arch instead of pinning amd64 (which would
+    # fail / be unusable on a linux/arm64 target).
+    echo "deb [arch=${ARCH} signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update --yes && \
     apt-get install --yes --no-install-recommends google-chrome-stable && \
     rm /tmp/chrome-key.pub && \
@@ -179,10 +183,22 @@ RUN update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/
 # NOTE: since 1.13.7 the .desktop file is md.obsidian.Obsidian.desktop (was
 # obsidian.desktop in <=1.13.4); glob over both so the Exec rewrite survives renames.
 RUN ARCH=$(dpkg --print-architecture) && \
-    wget -q "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.14.4/obsidian_1.14.4_amd64.deb" -O /tmp/obsidian.deb && \
-    apt-get update --yes && \
-    apt-get install --yes --no-install-recommends /tmp/obsidian.deb && \
-    rm /tmp/obsidian.deb && \
+    if [ "$ARCH" = "amd64" ]; then \
+        wget -q "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.14.4/obsidian_1.14.4_amd64.deb" -O /tmp/obsidian.deb && \
+        apt-get update --yes && \
+        apt-get install --yes --no-install-recommends /tmp/obsidian.deb && \
+        rm /tmp/obsidian.deb; \
+    else \
+        # No arm64 .deb in the v1.14.4 release (only the amd64 .deb is published). \
+        # Use the portable arm64 tarball: unpack to /opt/Obsidian and recreate the \
+        # /usr/bin/obsidian symlink the .deb would provide, so the wrapper below \
+        # works identically on both arches. \
+        wget -q "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.14.4/obsidian-1.14.4-${ARCH}.tar.gz" -O /tmp/obsidian.tar.gz && \
+        mkdir -p /opt/Obsidian && \
+        tar xzf /tmp/obsidian.tar.gz -C /opt/Obsidian --strip-components=1 && \
+        rm /tmp/obsidian.tar.gz && \
+        ln -sf /opt/Obsidian/obsidian /usr/bin/obsidian; \
+    fi && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
     # Replace symlink with --no-sandbox wrapper (covers terminal + .desktop launcher)
     mv /usr/bin/obsidian /usr/bin/obsidian.real && \
