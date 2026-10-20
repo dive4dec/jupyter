@@ -54,6 +54,7 @@ RUN apt-get update --yes && \
     fonts-liberation gpg software-properties-common emacs \
     dbus-x11 xfce4 xfce4-panel xfce4-session xfce4-settings xorg \
     xubuntu-icon-theme x11-utils xfonts-base xvfb \
+    xdg-user-dirs \
     # -- Programming languages --
     build-essential cmake ninja-build default-jdk default-jre \
     gdb fpc-source sqlite3 pdf2svg \
@@ -143,9 +144,13 @@ RUN echo "export ELECTRON_DISABLE_SANDBOX=1" >> /etc/bash.bashrc && \
     chmod 755 /usr/bin/google-chrome-stable && \
     # Chrome .desktop: remove hardcoded --no-sandbox (wrapper handles it now)
     sed -i 's|Exec=/usr/bin/google-chrome-stable --no-sandbox|Exec=/usr/bin/google-chrome-stable|g' /usr/share/applications/google-chrome.desktop && \
-    sed -i 's|Exec=/usr/bin/google-chrome-stable --no-sandbox|Exec=/usr/bin/google-chrome-stable|g' /usr/share/applications/com.google.Chrome.desktop && \
-    # VS Code .desktop: remove hardcoded --no-sandbox (ELECTRON_DISABLE_SANDBOX handles it)
-    sed -i 's| --no-sandbox||g' /usr/share/applications/code.desktop
+    sed -i 's|Exec=/usr/bin/google-chrome-stable --no-sandbox|Exec=/usr/bin/google-chrome-stable|g' /usr/share/applications/com.google.Chrome.desktop
+    # VS Code (code + code-server) needs NO desktop-file sed: ELECTRON_DISABLE_SANDBOX=1
+    # (set above) is the real sandbox-off switch for all Electron apps. A former
+    # `sed ... code.desktop` line was a no-op (the VS Code .desktop Exec never
+    # carried --no-sandbox) and BROKE on code 1.142.0 (2026-10-18), which RENAMED
+    # code.desktop -> com.microsoft.VSCode.desktop (floating, unpinned `code` apt
+    # dep). Removed in 0.2.81; do not re-add.
 
 # Replace bwrap with a passthrough wrapper for containers without CAP_SYS_ADMIN.
 # Ubuntu 26.04 glycin (GTK image loader) uses bwrap to sandbox image decoders.
@@ -680,8 +685,19 @@ RUN code-server --extensions-dir /usr/lib/code-server/lib/vscode/extensions \
     && echo "dsh icon: $(wc -c < "$DSH_EXT/media/icon.png") bytes (monochrome whale glyph)"
 
 # Jupyter AI
+# jupyterlab-notebook-awareness is the frontend that publishes the focused cell
+# into server-side YDoc awareness — exactly what jupyter-ai's get_active_cell_id /
+# run_cell / run_all_cells read. jupyter-ai 3.1.x shipped it as a MAIN dependency,
+# so it was installed and cell execution worked. jupyter-ai 3.2.x (shipped in image
+# 0.2.78) demoted it to an optional extra (rtc / rtc-jsd), so a plain `jupyter-ai`
+# install no longer pulls it in. Without it, run_cell hard-fails with "No active
+# cell found. Make sure the notebook is focused." even when a cell IS focused in
+# the browser, and hermes falls back to running the cell's source in its own REPL
+# (output in chat, notebook cell never runs). Pin to the range jupyter-ai 3.2.x
+# itself declares so the native path works again.
 RUN uv pip install --system --no-cache \
     'jupyter-ai==3.2.*' \
+    'jupyterlab-notebook-awareness>=0.2.0,<0.3.0' \
     # 'jupyter-ai-jupyternaut' \
     # 'jupyter-ai-magic-commands' \
     && \
@@ -897,6 +913,27 @@ RUN DSH_ROOT=/opt/conda/lib/dsh-stage/node_modules/@deepseek-ai/dsh \
     && [ "$(find /opt/conda/lib/dsh-stage/node_modules/@deepseek-ai \
               -path '*dsh-client-connection/lib/index.js' \
               -exec grep -l 'dsh-web-tokenless' {} + 2>/dev/null | wc -l)" -ge 1 ]
+
+# ──────────────────────────────────────────────────────────────────────────
+# dsh web UI: HIDE the "open in <app>" surface (divnedb-only).
+# The top-right "open in VS Code" split button (dsh-client-ui-open-in-app)
+# SPAWNS a native desktop app (code/Cursor/Zed/JetBrains) via
+# dsh-host-open-in-app — it needs a display manager, which the headless
+# singleuser pod lacks. So the icon is DEAD here; the working editor is the
+# JupyterLab "VS Code" launcher tile (jupyter-vscode-proxy -> code-server,
+# with the dsh extension baked in). This patch no-ops the client plugin's
+# apply() so the dead surface never renders. Deterministic + loud: if a dsh
+# version bump changes the apply() shape, the assertion fails the build
+# rather than silently shipping an image that still shows a broken icon.
+# (Divendb-specific; not a dsh upstream change.)
+# ──────────────────────────────────────────────────────────────────────────
+COPY --chown=${NB_USER}:${NB_GID} dsh-web-openinapp-hidden.py /tmp/dsh-web-openinapp-hidden.py
+RUN DSH_ROOT=/opt/conda/lib/dsh-stage/node_modules/@deepseek-ai/dsh \
+    && python /tmp/dsh-web-openinapp-hidden.py \
+    && rm -f /tmp/dsh-web-openinapp-hidden.py \
+    && [ "$(find /opt/conda/lib/dsh-stage/node_modules/@deepseek-ai \
+              -path '*dsh-client-ui-open-in-app/lib/client.js' \
+              -exec grep -l 'dsh-web-openinapp-hidden' {} + 2>/dev/null | wc -l)" -ge 1 ]
 
 # ──────────────────────────────────────────────────────────────────────────
 # dsh web UI subpath support — now NATIVE in dsh (no build patch).
@@ -1172,8 +1209,11 @@ EOF
 USER ${NB_UID}
 
 # Install jupyter-storage-usage from pre-built wheel (server extension)
-COPY jupyter_storage_usage-0.1.0-py3-none-any.whl /tmp/
-RUN uv pip install --system --no-cache /tmp/jupyter_storage_usage-0.1.0-py3-none-any.whl && \
+# 0.1.2 = no-limit default: HARD_LIMIT_BYTES default 0 (standalone `docker run`
+# shows "no limit"); the hub always injects its resolved per-user limit, so hubs
+# are unaffected. See jupyter-storage-usage v0.1.2.
+COPY jupyter_storage_usage-0.1.2-py3-none-any.whl /tmp/
+RUN uv pip install --system --no-cache /tmp/jupyter_storage_usage-0.1.2-py3-none-any.whl && \
     fix-permissions "${CONDA_DIR}"
 
 # Ensure the notebook user OWNS its home directory (user, not just group).

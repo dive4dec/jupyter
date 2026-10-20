@@ -74,6 +74,35 @@ case "$PORT" in
 esac
 PORT="${PORT:-$DEFAULT_PORT}"
 
+# ── Ensure dsh can create its default Workspace ───────────────────────────
+# dsh's workspace-controller creates the first-use workspace at
+#   <Documents>/deepseek-harness/default-workspace
+# and on Linux resolves <Documents> by shelling out to `xdg-user-dir DOCUMENTS`
+# (dsh-api-workspace-controller -> defaultWorkspaceDirectory). It then REJECTS
+# the result if it is empty OR equal to $HOME (the headless-container case:
+# no desktop config -> xdg-user-dir falls back to $HOME -> "system Documents
+# directory is unavailable" -> the "cannot create default…" UI error).
+#
+# Fix: point XDG_DOCUMENTS_DIR at a real subdir of $HOME (not $HOME itself),
+# which xdg-user-dir returns and dsh accepts. Runs as the notebook user with
+# HOME=<their home> (NFS on the hub, local in standalone), so this persists
+# across pod restarts on the hub. Idempotent + best-effort: never clobber an
+# existing user-dirs.dirs (a real desktop config on NFS), never block boot.
+DOC_DIR="$HOME/Documents"
+DOC_DIRS_CFG="$HOME/.config/user-dirs.dirs"
+if [ -z "${XDG_DOCUMENTS_DIR:-}" ] || [ ! -d "$DOC_DIR" ]; then
+    mkdir -p "$DOC_DIR" 2>/dev/null || true
+fi
+if [ ! -f "$DOC_DIRS_CFG" ]; then
+    mkdir -p "$(dirname "$DOC_DIRS_CFG")" 2>/dev/null || true
+    printf 'XDG_DOCUMENTS_DIR="%s"\n' "$DOC_DIR" > "$DOC_DIRS_CFG" 2>/dev/null || true
+fi
+export XDG_DOCUMENTS_DIR="$DOC_DIR"
+# Belt-and-suspenders: if xdg-user-dir is somehow absent (e.g. an older image
+# without the xdg-user-dirs apt package), the exported XDG_DOCUMENTS_DIR above
+# still lets dsh's `xdg-user-dir DOCUMENTS` fall through gracefully; we cannot
+# replace the binary, but with the env set + the dir present, fresh images work.
+
 # Persist the resolved port for the launcher (jupyter-dsh-proxy reads it).
 # Single source of truth: whichever port we actually bound is what the proxy
 # points at, so the launcher and the server always agree.

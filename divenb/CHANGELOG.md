@@ -1,5 +1,58 @@
 # devenb Changelog
 
+## 0.2.83 (2026-10-20)
+
+### Fixed
+- **Hermes ran a cell's source in its own REPL instead of executing the notebook
+  cell.** Root cause (not the hermes version): jupyter-ai 3.2.x (first shipped in
+  image 0.2.78) demoted the `jupyterlab-notebook-awareness` frontend from a main
+  dependency (3.1.x) to an optional extra, so a plain `jupyter-ai` install stopped
+  pulling it in. That frontend publishes the focused cell into server-side YDoc
+  awareness — exactly what `get_active_cell_id` / `run_cell` / `run_all_cells`
+  read. Missing, `run_cell` failed "No active cell found" even with a focused
+  cell, and hermes v0.22.x fell back to running the cell source in its own
+  process (output in chat, notebook cell untouched). FIX: install
+  `jupyterlab-notebook-awareness>=0.2.0,<0.3.0` (the range jupyter-ai 3.2.x
+  declares) so the native path works again. This release also lands the
+  previously-uncommitted 0.2.81 dsh/storage fixes, which are part of the live
+  0.2.83 image.
+
+## 0.2.81 (2026-10-18)
+
+### Fixed
+- **Storage widget: no-limit default for standalone runs.** `jupyter-storage-usage`
+  is now 0.1.2 (was 0.1.0 in the image; 0.1.1 was an orphaned un-wired bump):
+  the in-pod widget's `HARD_LIMIT_BYTES` default is `0` (unlimited) instead of
+  `20Gi`. A bare `docker run` (standalone, no hub) now shows `💾 15Gi` with a
+  "no limit" tooltip instead of the old hard-coded `…/ 20Gi`. **The hub is
+  unchanged** — the hub-side package (`jupyterhub-storage-usage`, still 20Gi
+  default + per-user `limits-overrides`) always injects the resolved limit into
+  the pod env, overriding the in-pod default, so every hub keeps its limit
+  including individual-user exceptions (ccha23). `UsageData` + the cleanup
+  portal treat `hard_limit == 0` as "never over-limit, 0%, 'unlimited'" (no
+  divide-by-zero, no false over-limit), and `parse_quantity` now accepts
+  `"unlimited"`/`"none"` → 0.
+- **dsh "cannot create default…" workspace error.** On first use dsh's
+  `workspace-controller` creates the default Workspace at
+  `<Documents>/deepseek-harness/default-workspace`, resolving `<Documents>` by
+  shelling out to `xdg-user-dir DOCUMENTS`. In a headless container that binary
+  is absent (or returns `$HOME`, which dsh explicitly rejects) → the error.
+  Fix: install `xdg-user-dirs` (apt) + the `41-dsh-web` boot hook seeds
+  `$HOME/Documents` and writes `~/.config/user-dirs.dirs`
+  (`XDG_DOCUMENTS_DIR=$HOME/Documents`) before launching `dsh web`. Idempotent,
+  best-effort (never blocks boot, never clobbers a real desktop config), and it
+  runs in the notebook user's context so on the hub the seed persists on the
+  NFS home across pod restarts.
+- **Hide the dead dsh top-right "open in VS Code" icon.** That split button
+  (`dsh-client-ui-open-in-app`) spawns a NATIVE desktop app
+  (`code`/Cursor/Zed/JetBrains) via `dsh-host-open-in-app`, which needs a
+  display manager the headless singleuser pod lacks — clicking it did nothing.
+  `dsh-web-openinapp-hidden.py` (new build-time patch, same deterministic /
+  fails-loud pattern as `dsh-web-tokenless.py`) no-ops the client plugin's
+  `apply()` so the surface never renders. The working editor is unchanged: the
+  JupyterLab **"VS Code" launcher tile** (jupyter-vscode-proxy → code-server,
+  with the dsh extension baked in).
+
 ## 0.2.80 (2026-10-18)
 
 ### Changed
