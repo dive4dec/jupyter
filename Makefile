@@ -139,6 +139,7 @@ cd $(IMAGE_NAME) && docker buildx build . \
 --platform linux/amd64,linux/arm64 \
 $(if $(DOCKERFILE_SUFFIX),-f Dockerfile.$(DOCKERFILE_SUFFIX)) \
 $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
+$(if $(filter cs1302nb divenb,$(IMAGE_NAME)),--build-context jupyter-ai-hermes=../../jupyter-ai-hermes --build-context jupyter-hermes-proxy=../../jupyter-hermes-proxy --build-context jupyter-dsh-proxy=../../jupyter-dsh-proxy --build-context jupyter-ai-hermes-magics=../../jupyter-ai-hermes-magics --build-context jupyter-python-tutor=../../jupyter-python-tutor --build-context jupyter-cpp-tutor=../../jupyter-cpp-tutor --build-context cppmanlite=../../cppmanlite --build-context jupyterlab-pwa=../../jupyterlab-pwa --build-context dsh-openai-shim=../../dsh-openai-shim) \
 --cache-from=type=registry,ref=$(FULL_IMAGE_NAME):cache1 \
 --cache-to=type=registry,ref=$(FULL_IMAGE_NAME):cache1,mode=max \
 -t "$(FULL_IMAGE_NAME):$(IMAGE_TAG)" \

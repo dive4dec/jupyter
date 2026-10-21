@@ -53,8 +53,20 @@ RUN apt-get update --yes && \
     # -- Desktop --
     fonts-liberation gpg software-properties-common emacs \
     dbus-x11 xfce4 xfce4-panel xfce4-session xfce4-settings xorg \
-    xubuntu-icon-theme x11-utils xfonts-base xvfb \
+    xubuntu-icon-theme x11-utils xfonts-base \
     xdg-user-dirs \
+    # -- X server: pin to the -1ubuntu1 point release. Ubuntu 26.04 arm64 (ports)
+    #    shipped a .3 point release for xvfb + xserver-xorg-core but NOT for
+    #    xserver-common (arch-independent [all]), so the default candidate
+    #    xvfb=.3 demands xserver-common>=.3 which does not exist on arm64 and
+    #    aborts the entire base apt transaction. amd64 has the .3 for all three,
+    #    so it builds fine unpinned -- but pinning all three to -1ubuntu1 (which
+    #    exists on BOTH arches) keeps the amd64+arm64 halves of this multi-arch
+    #    image on identical versions. Complements the arch-aware Chrome/Obsidian
+    #    work in 3d8c1b7, which fixed those two but not this base X dep.
+    xserver-common=2:21.1.22-1ubuntu1 \
+    xserver-xorg-core=2:21.1.22-1ubuntu1 \
+    xvfb=2:21.1.22-1ubuntu1 \
     # -- Programming languages --
     build-essential cmake ninja-build default-jdk default-jre \
     gdb fpc-source sqlite3 pdf2svg \
@@ -662,8 +674,11 @@ RUN for ext in \
     done
 
 # install-vscode-extension script (needed for versioned VSIX downloads from Marketplace)
-COPY install-vscode-extension /usr/local/bin/install-vscode-extension
-RUN chmod a+rx /usr/local/bin/install-vscode-extension
+# --chmod=755 sets the exec bit at COPY time (BuildKit), so no separate chmod is
+# needed. A separate `chmod` here would run as ${NB_UID} (jovyan, set at line 653)
+# on a root-owned COPYed file and fail with EPERM ("Operation not permitted") on
+# both amd64 and arm64.
+COPY --chmod=755 install-vscode-extension /usr/local/bin/install-vscode-extension
 
 # Code-server extensions (via install-vscode-extension for versioned downloads)
 RUN for ext in \
@@ -1034,9 +1049,16 @@ RUN printf 'hatchling<=1.32.1\n' > /tmp/hatchling-build-constraints.txt && \
     'kaleido==0.2.*' \
     'jupyterlab-execute-time==3.3.*' \
     && \
+    # xtensor 0.9.0 exists ONLY on linux-64 (never built for linux-aarch64; the
+    # oldest arm64 xtensor is 0.21.10), so the pinned 'xtensor=0.9.*' makes the
+    # solver fail on arm64 with "xtensor=0.9* does not exist". Nothing in
+    # root=6.40/xeus-cpp=0.10 actually depends on xtensor, so it is optional.
+    # Keep the amd64 pin byte-for-byte (matches the already-published amd64
+    # image); omit it on arm64. Complements the arch-aware work in 3d8c1b7.
+    XTENSOR_PIN=$(if [ "$(dpkg --print-architecture)" = "amd64" ]; then echo 'xtensor=0.9.*'; fi) && \
     i=0 && until timeout -k 60 900 mamba install --quiet --yes \
         'xeus-cpp=0.10.*' \
-        'xtensor=0.9.*' \
+        ${XTENSOR_PIN} \
         'root=6.40.*' \
         'root_cxx_standard=23' \
         'gxx_linux-64'; do \

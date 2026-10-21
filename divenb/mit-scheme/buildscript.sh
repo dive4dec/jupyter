@@ -14,6 +14,17 @@ fi
 SCHEME_VERSION=12.1
 SCMUTILS_VERSION=20230902
 
+# Arch-aware MIT Scheme tarball. The GNU mirror publishes a prebuilt-source
+# tarball per architecture (mit-scheme-<ver>-<arch>.tar.gz); the x86-64
+# tarball's microcode is x86 assembly, so building it on linux/arm64 fails with
+# "unknown mnemonic". Map the build arch to GNU's tarball label, mirroring the
+# arch-aware pattern used for Chrome/Obsidian in the Dockerfile (3d8c1b7).
+case "$(dpkg --print-architecture)" in
+  amd64)   SCHEME_ARCH=x86-64 ;;
+  arm64)   SCHEME_ARCH=aarch64le ;;
+  *)       echo "Unsupported architecture for MIT Scheme: $(dpkg --print-architecture)"; exit 1 ;;
+esac
+
 # Create a unique temporary directory
 SRC=$(mktemp -d)
 trap "rm -rf ${SRC}" EXIT
@@ -37,7 +48,7 @@ apt-get install --yes --no-install-recommends \
 
 # Download MIT Scheme and scmutils
 echo "Downloading MIT Scheme..."
-wget --quiet "https://ftp.gnu.org/gnu/mit-scheme/stable.pkg/${SCHEME_VERSION}/mit-scheme-${SCHEME_VERSION}-x86-64.tar.gz" -O "${SRC}/mit-scheme-${SCHEME_VERSION}.tar.gz"
+wget --quiet "https://ftp.gnu.org/gnu/mit-scheme/stable.pkg/${SCHEME_VERSION}/mit-scheme-${SCHEME_VERSION}-${SCHEME_ARCH}.tar.gz" -O "${SRC}/mit-scheme-${SCHEME_VERSION}.tar.gz"
 echo "Downloading scmutils..."
 wget --quiet "https://groups.csail.mit.edu/mac/users/gjs/6946/mechanics-system-installation/native-code/scmutils-${SCMUTILS_VERSION}.tar.gz" -O "${SRC}/scmutils-${SCMUTILS_VERSION}.tar.gz"
 
