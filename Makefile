@@ -128,6 +128,52 @@ public-image.%:
 public-image-as-latest.%:
 	@ $(MAKE) docker-multiarch.$($*) registry=$(public_registry) IMAGE_TAG=latest
 
+# Build + push a SINGLE-ARCH half of a multiarch image.
+# ==============
+# For teams that build each half on native hardware (e.g. amd64 on a Linux
+# server, arm64 on an Apple Silicon Mac) instead of cross-building with QEMU,
+# build each half with its -linux-<arch> tag, then combine them with
+# image-stitch.% into the normal version tag. See README.md, "Multiarch
+# releases built on separate machines".
+#
+#   make image-amd64.divenb^0.2.83 registry=chungc    # on an amd64 host
+#   make image-arm64.divenb^0.2.83 registry=chungc    # on an arm64 host
+#   make image-stitch.divenb^0.2.83 registry=chungc   # on either host
+
+image-amd64.%: parse-image-info.%
+	@echo "Building amd64 $(FULL_IMAGE_NAME):$(IMAGE_TAG)-linux-amd64 ..." && \
+	cd $(IMAGE_NAME) && docker buildx build . \
+	--platform linux/amd64 \
+	$(if $(DOCKERFILE_SUFFIX),-f Dockerfile.$(DOCKERFILE_SUFFIX)) \
+	$(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
+	$(if $(filter cs1302nb divenb,$(IMAGE_NAME)),--build-context jupyter-ai-hermes=../../jupyter-ai-hermes --build-context jupyter-hermes-proxy=../../jupyter-hermes-proxy --build-context jupyter-dsh-proxy=../../jupyter-dsh-proxy --build-context jupyter-ai-hermes-magics=../../jupyter-ai-hermes-magics --build-context jupyter-python-tutor=../../jupyter-python-tutor --build-context jupyter-cpp-tutor=../../jupyter-cpp-tutor --build-context cppmanlite=../../cppmanlite --build-context jupyterlab-pwa=../../jupyterlab-pwa --build-context dsh-openai-shim=../../dsh-openai-shim) \
+	--cache-from=type=registry,ref=$(FULL_IMAGE_NAME):cache1 \
+	--cache-to=type=registry,ref=$(FULL_IMAGE_NAME):cache1,mode=max \
+	-t "$(FULL_IMAGE_NAME):$(IMAGE_TAG)-linux-amd64" \
+	--push
+
+image-arm64.%: parse-image-info.%
+	@echo "Building arm64 $(FULL_IMAGE_NAME):$(IMAGE_TAG)-linux-arm64 ..." && \
+	cd $(IMAGE_NAME) && docker buildx build . \
+	--platform linux/arm64 \
+	$(if $(DOCKERFILE_SUFFIX),-f Dockerfile.$(DOCKERFILE_SUFFIX)) \
+	$(if $(BUILD_TARGET),--target $(BUILD_TARGET)) \
+	$(if $(filter cs1302nb divenb,$(IMAGE_NAME)),--build-context jupyter-ai-hermes=../../jupyter-ai-hermes --build-context jupyter-hermes-proxy=../../jupyter-hermes-proxy --build-context jupyter-dsh-proxy=../../jupyter-dsh-proxy --build-context jupyter-ai-hermes-magics=../../jupyter-ai-hermes-magics --build-context jupyter-python-tutor=../../jupyter-python-tutor --build-context jupyter-cpp-tutor=../../jupyter-cpp-tutor --build-context cppmanlite=../../cppmanlite --build-context jupyterlab-pwa=../../jupyterlab-pwa --build-context dsh-openai-shim=../../dsh-openai-shim) \
+	--cache-from=type=registry,ref=$(FULL_IMAGE_NAME):cache1 \
+	--cache-to=type=registry,ref=$(FULL_IMAGE_NAME):cache1,mode=max \
+	-t "$(FULL_IMAGE_NAME):$(IMAGE_TAG)-linux-arm64" \
+	--push
+
+# Stitch the two -linux-<arch> halves into one multiarch manifest at the
+# normal version tag. Pure registry operation (docker buildx imagetools):
+# no local build or pull, runs in seconds from any logged-in host.
+image-stitch.%: parse-image-info.%
+	@echo "Stitching $(FULL_IMAGE_NAME):$(IMAGE_TAG) from the -linux-amd64 and -linux-arm64 halves ..." && \
+	docker buildx imagetools create -t "$(FULL_IMAGE_NAME):$(IMAGE_TAG)" \
+	"$(FULL_IMAGE_NAME):$(IMAGE_TAG)-linux-amd64" \
+	"$(FULL_IMAGE_NAME):$(IMAGE_TAG)-linux-arm64" && \
+	echo "Verify with: docker buildx imagetools inspect $(FULL_IMAGE_NAME):$(IMAGE_TAG)"
+
 # Build a multiarch docker image for publishing to the public registry
 docker-multiarch.%: parse-image-info.%
 	$(docker-multiarch)
