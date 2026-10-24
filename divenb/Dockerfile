@@ -326,10 +326,31 @@ USER ${NB_UID}
 # ============================================================
 # Python + PyTorch + Jupyter merged into one big install
 # ============================================================
+# --- SECURITY: eMudhra/emSign CA incident (2026-10-19) ----------------------
+# The compromised intermediate CA `emSign ECC Root CA - G3` was revoked. The
+# conda SYSTEM bundle (ca-certificates) is already clean, but a later
+# `uv pip install` in this stage pulls a VULNERABLE certifi (<=2026.7.22) +
+# pip (<=26.2.1, whose vendored certifi also carries G3) into site-packages,
+# enabling MITM of TLS to python.org / pypi.org.
+#
+# Two-part fix (this comment marks part 1):
+#   PART 1 (here):  `uv=0.13.5` — uv is a conda BINARY (not a pip pkg); its
+#                   bundled root store is refreshed in >=0.13.4 per the
+#                   advisory. Pinned in the mamba step because that is where
+#                   the uv binary comes from.
+#   PART 2 (final
+# base-stage block, near end of file): `uv pip install certifi==2026.10.19
+#                   pip==26.2.2` + an assert — runs AFTER all other installs
+#                   so the safe site-packages versions are the FINAL ones
+#                   (a cache-hit build reuses the old layer, so a fresh
+#                   no-cache build is required).
+# Ref: discuss.python.org t/information-for-python-users-regarding-emudhra
+#      -emsign-ca-certificate-security-incident/109576
+# -----------------------------------------------------------------------------
 RUN if [ "${PYTHON_VERSION:-}" = "" ]; then PYTHON_SPECIFIER="python"; else PYTHON_SPECIFIER="python=${PYTHON_VERSION}"; fi && \
     mamba install --yes \
     "${PYTHON_SPECIFIER}" \
-    'uv' \
+    'uv=0.13.5' \
     && \
     mkdir -p "${CONDA_DIR}/conda-meta" && \
     mamba list python | sed 's/^[[:space:]]*//' | grep '^python ' | tr -s ' ' | cut -d ' ' -f 1,2 >> "${CONDA_DIR}/conda-meta/pinned" && \
@@ -1093,6 +1114,24 @@ RUN SP=$(/opt/conda/bin/python -c "import site; print(site.getsitepackages()[0])
     && (update-desktop-database /usr/share/applications 2>/dev/null || true)
 USER ${NB_UID}
 
+# === SECURITY (final, authoritative) — eMudhra/emSign CA incident (2026-10-19) ===
+# Every earlier `uv pip install` in this stage may have pulled certifi (and
+# transitive pip) as a dep into site-packages, SHADOWING the conda copy
+# (observed: conda certifi 2026.7.22 overwrites by a pip certifi 2026.5.20).
+# The compromised `emSign ECC Root CA - G3` root is in certifi<=2026.7.22 and
+# pip<=26.2.1 (MITM of python.org/pypi.org TLS). This runs AFTER all other
+# installs so the safe versions are the FINAL ones in the image, and asserts
+# on the *imported* certifi (not conda-meta) so a shadow can't slip through.
+# (uv itself is a conda binary — fixed by the `uv=0.13.5` mamba pin above, not
+# here; `uv pip install uv` would drop a PyPI `uv` into site-packages.)
+# Ref: discuss.python.org t/information-for-python-users-regarding-emudhra
+#      -emsign-ca-certificate-security-incident/109576
+RUN uv pip install --system --no-cache \
+        'certifi==2026.10.19' \
+        'pip==26.2.2' \
+    && /opt/conda/bin/python -c "import certifi,importlib.metadata as m; assert certifi.__version__=='2026.10.19', certifi.__version__; assert m.version('pip')=='26.2.2', m.version('pip'); assert 'emSign ECC Root CA - G3' not in open(certifi.where(),errors='ignore').read(); print('certfix OK:', certifi.__version__)" \
+    && fix-permissions "${CONDA_DIR}"
+
 # Copy local files (scripts + configs)
 COPY start.sh /usr/local/bin/
 COPY start-notebook.sh start-singleuser.sh /usr/local/bin/
@@ -1253,6 +1292,47 @@ USER ${NB_UID}
 COPY jupyter_storage_usage-0.1.2-py3-none-any.whl /tmp/
 RUN uv pip install --system --no-cache /tmp/jupyter_storage_usage-0.1.2-py3-none-any.whl && \
     fix-permissions "${CONDA_DIR}"
+
+# Remove the 8 BUILT-IN ACP agent personas shipped by the third-party
+# `jupyter-ai-acp-client` package (claude/codex/copilot/goose/kilo/kiro/
+# mistral-vibe/opencode). Only Hermes is actually wired up; the built-ins are
+# registered as `jupyter_ai.personas` entry points that jupyter-ai's
+# PersonaManager loads unconditionally, so they all show in the @-mention
+# dropdown next to Hermes. (Copilot is especially confusing: the image ships
+# VS Code, which drops a /usr/bin/copilot *shim* that satisfies copilot's
+# shutil.which("copilot") guard, so that persona loads even though the real
+# GitHub Copilot CLI/ACP agent is absent.)
+#
+# We strip the 8 lines from jupyter-ai-acp-client's OWN dist-info
+# entry_points.txt. Hermes' entry point lives in a SEPARATE dist-info
+# (jupyter_ai_hermes / hermes_agent), so it is untouched. This must run AFTER
+# every `uv pip install` in this stage — a later reinstall of
+# jupyter-ai-acp-client would regenerate the file and re-add them — hence it is
+# placed here, after the last install (jupyter-storage-usage). Metadata-only
+# edit (rewrites a small text file in site-packages), no data layer.
+# Idempotent: re-running simply removes nothing.
+RUN python3 - <<'PY'
+import glob, re
+BUILTIN = re.compile(
+    r"^\s*(claude|codex|copilot|goose|kilo|kiro|mistral-vibe|opencode)-acp\s*="
+)
+removed_any = False
+for epf in glob.glob("/opt/conda/lib/python*/site-packages/jupyter_ai_acp_client-*.dist-info/entry_points.txt"):
+    kept, removed = [], []
+    for ln in open(epf, errors="replace").read().splitlines():
+        if BUILTIN.match(ln):
+            removed.append(ln.split("=")[0].strip())
+            continue
+        kept.append(ln)
+    open(epf, "w").write("\n".join(kept).rstrip() + "\n")
+    removed_any = removed_any or bool(removed)
+print("persona filter: removed", "OK" if removed_any else "(none — already filtered)")
+PY
+# Verify Hermes is still registered (its entry point is in a separate dist-info,
+# never touched above) so a bad filter can't silently drop the one persona we want.
+RUN grep -rq "hermes-acp" /opt/conda/lib/python*/site-packages/*jupyter_ai_hermes*.dist-info/entry_points.txt \
+    && echo "hermes persona entry point: OK" \
+    && fix-permissions "${CONDA_DIR}"
 
 # Ensure the notebook user OWNS its home directory (user, not just group).
 # Several steps earlier in this image run as `USER root` (the wget, cmake,
