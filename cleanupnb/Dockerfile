@@ -100,8 +100,8 @@ RUN mamba install --yes --quiet \
     fix-permissions "${CONDA_DIR}"
 
 # Install jupyter-storage-usage from pre-built wheel
-COPY jupyter_storage_usage-0.1.0-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir /tmp/jupyter_storage_usage-0.1.0-py3-none-any.whl && \
+COPY jupyter_storage_usage-0.1.3-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir /tmp/jupyter_storage_usage-0.1.3-py3-none-any.whl && \
     fix-permissions "${CONDA_DIR}" && \
     fix-permissions "/home/${NB_USER}"
 
