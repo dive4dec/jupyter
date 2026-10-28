@@ -1247,6 +1247,57 @@ print(f"OK: {len(i['federated_extensions']) - 1} federated extensions pass Lab c
 PYEOF
 # ---------------------------------------------------------------------------
 
+# --- Fix MyST per-cell rendering on jupyter-ai 3.2 (IContentFactory conflict) --
+# Symptom (student-facing): MyST course notebooks render each markdown cell as an
+# INDEPENDENT document — frontmatter/title banner repeats, section headers show
+# twice (an H1 copy + the real heading), and the "Exercise N" counter resets to 1
+# in every cell (all exercises read "Exercise 1"). The known-good jupyter-ai 3.0
+# image renders whole-notebook (frontmatter once, exercises 1,2,3...).
+#
+# Root cause: jupyterlab-myst renders a notebook as ONE document only when its own
+# `NotebookPanel.IContentFactory` provider (MySTContentFactory -> MySTMarkdownCell)
+# is the winning provider for that token. jupyter-ai 3.2 pulls
+#   jupyterlab-ai-commands -> jupyterlab-diff -> jupyterlab-cell-input-footer,
+# and cell-input-footer ALSO provides `NotebookPanel.IContentFactory` (with a BASE
+# plain-markdown factory). When both are present, cell-input-footer wins the token
+# and displaces MyST's whole-notebook renderer -> every cell renders per-cell.
+# (This is the upstream bug jupyterlab-myst #300 "Markdown headings duplicated as
+# large titles at the top of cells", cause named in #301 "IContentFactory
+# conflicts". The #301 fix is UNRELEASED as of jupyterlab-myst 2.7.0, so a version
+# bump is not an option yet.)
+#
+# Fix: drop the two extensions that carry the conflicting provider. This keeps
+# jupyter-ai 3.2 (and its run_cell / get_active_cell_id hermes path) intact. The
+# prebuilt lab loads labextensions at runtime, so uninstall + removing the
+# labextension dirs is sufficient — NO `jupyter lab build` needed (validated
+# in-container: with these two removed, a MyST notebook renders whole-notebook,
+# byte-identical metrics to the known-good image).
+#   - jupyterlab-cell-input-footer : the offending IContentFactory provider.
+#   - jupyterlab-diff              : its only in-tree parent; pulled purely to feed
+#                                    cell-input-footer, and nothing else in this
+#                                    image needs it. Removing it severs the chain.
+#
+# The trailing guard makes the build FAIL LOUDLY if a future jupyter-ai bump
+# re-adds either, so a MyST regression cannot silently ship again.
+RUN uv pip uninstall --system --no-cache -y \
+        jupyterlab-cell-input-footer \
+        jupyterlab-diff \
+    && rm -rf "${CONDA_DIR}/share/jupyter/labextensions/jupyterlab-cell-input-footer-extension" \
+             "${CONDA_DIR}/share/jupyter/labextensions/jupyterlab-diff" \
+    && fix-permissions "${CONDA_DIR}"
+# Build-time guard: assert the conflicting IContentFactory provider is gone.
+# (jupyterlab-ai-commands itself is harmless — it stays installed; only the
+# cell-input-footer token conflict breaks MyST, and that comes in via jupyterlab-diff.)
+RUN python - <<'PYEOF'
+import importlib.util
+for pkg in ("jupyterlab-cell-input-footer", "jupyterlab-diff"):
+    assert importlib.util.find_spec(pkg.replace("-", "_")) is None, \
+        f"{pkg} is still installed — it conflicts with jupyterlab-myst's " \
+        f"IContentFactory and breaks whole-notebook MyST rendering (see #300/#301)"
+print("OK: jupyterlab-cell-input-footer + jupyterlab-diff removed (MyST IContentFactory conflict fixed)")
+PYEOF
+# ---------------------------------------------------------------------------
+
 
 # ============================================================
 # Runtime pip → uv: replace pip with a uv wrapper so that both
